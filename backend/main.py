@@ -189,8 +189,10 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
                 text_w = pdfmetrics.stringWidth(val, rl_font, font_size)
                 draw_x = el.x + (el.w - text_w) / 2
                 
-                # Transform Web UI top-left coordinate to PDF bottom-left baseline coordinate
-                draw_y = bg_img.height - el.y - (font_size * 0.75)
+                # Transform Web UI top-left coordinate to PDF bottom-left baseline coordinate.
+                # In the UI, the text is vertically centered using flexbox inside `el.h`. 
+                # We need to drop the text down by roughly half the box height, minus a baseline adjustment.
+                draw_y = bg_img.height - el.y - (el.h / 2) - (font_size * 0.3)
                 
                 pdf.setFont(rl_font, font_size)
                 pdf.drawString(draw_x, draw_y, val)
