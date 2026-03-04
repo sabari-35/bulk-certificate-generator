@@ -15,6 +15,7 @@ __pycache__/
 upload/*
 output/*
 
+
 # Keep folders in git
 !upload/.gitkeep
 !output/.gitkeep
