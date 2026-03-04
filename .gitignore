@@ -1,0 +1,27 @@
+# Node
+node_modules/
+
+# Python virtual environment
+venv/
+.env
+__pycache__/
+
+# Python compiled files
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore generated files
+upload/*
+output/*
+
+# Keep folders in git
+!upload/.gitkeep
+!output/.gitkeep
+
+# Ignore PDFs
+*.pdf
+
+# OS files
+.DS_Store
+Thumbs.db
