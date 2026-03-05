@@ -274,7 +274,13 @@ function App() {
       setTemplateUrl(URL.createObjectURL(file));
       const formData = new FormData();
       formData.append('file', file);
-      await axios.post(`${API_BASE}/upload_template/${sessionId}`, formData);
+      try {
+        await axios.post(`${API_BASE}/upload_template/${sessionId}`, formData);
+      } catch (err: any) {
+        alert("Template Upload Error: " + (err.response?.data?.error || err.message));
+        setTemplateFile(null);
+        setTemplateUrl(null);
+      }
     }
   };
 

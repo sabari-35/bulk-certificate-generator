@@ -93,8 +93,11 @@ async def upload_template(session_id: str, file: UploadFile = File(...)):
     if session_id not in session_store:
         return JSONResponse(status_code=404, content={"error": "Session not found"})
     content = await file.read()
+    if len(content) == 0:
+        return JSONResponse(status_code=400, content={"error": "Template file received 0 bytes on the server. Please try renaming the image or selecting a different one."})
+        
     session_store[session_id]["template"] = content
-    return {"filename": file.filename}
+    return {"filename": file.filename, "size": len(content)}
 
 @app.post("/api/upload_photos/{session_id}")
 async def upload_photos(session_id: str, files: List[UploadFile] = File(...)):
