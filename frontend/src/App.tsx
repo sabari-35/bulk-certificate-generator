@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, SyntheticEvent } from 'react';
 import { Upload, FileSpreadsheet, Image as ImageIcon, Folder, Settings, Download, Play, CheckCircle2, AlertCircle, Plus, X, Trash2 } from 'lucide-react';
 import { Rnd } from 'react-rnd';
 import axios from 'axios';
+import imageCompression from 'browser-image-compression';
 import './index.css';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
@@ -273,13 +274,21 @@ function App() {
 
   const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0] && sessionId) {
-      const file = e.target.files[0];
-      setTemplateFile(file);
+      let file = e.target.files[0];
       setTemplateUrl(URL.createObjectURL(file));
-      const formData = new FormData();
-      formData.append('file', file);
       setIsUploading(true);
+
       try {
+        const options = {
+          maxSizeMB: 1,
+          maxWidthOrHeight: 2500,
+          useWebWorker: true
+        };
+        file = await imageCompression(file, options);
+        setTemplateFile(file);
+
+        const formData = new FormData();
+        formData.append('file', file);
         await axios.post(`${API_BASE}/upload_template/${sessionId}`, formData);
       } catch (err: any) {
         alert("Template Upload Error: " + (err.response?.data?.error || err.message));
@@ -295,13 +304,32 @@ function App() {
     if (e.target.files && e.target.files.length > 0 && sessionId) {
       setPhotos(e.target.files);
       setConfig(prev => ({ ...prev, photo_enabled: true }));
-      const formData = new FormData();
-      Array.from(e.target.files).forEach(file => {
-        formData.append('files', file);
-      });
       setIsUploading(true);
+
       try {
-        await axios.post(`${API_BASE}/upload_photos/${sessionId}`, formData);
+        const options = {
+          maxSizeMB: 0.3,
+          maxWidthOrHeight: 800,
+          useWebWorker: true
+        };
+
+        const filesArray = Array.from(e.target.files);
+        // Process and upload in chunks of 20 to avoid payload too large and timeouts
+        const CHUNK_SIZE = 20;
+        for (let i = 0; i < filesArray.length; i += CHUNK_SIZE) {
+          const chunk = filesArray.slice(i, i + CHUNK_SIZE);
+
+          const compressedChunk = await Promise.all(
+            chunk.map(f => imageCompression(f, options))
+          );
+
+          const formData = new FormData();
+          compressedChunk.forEach(file => {
+            formData.append('files', file);
+          });
+
+          await axios.post(`${API_BASE}/upload_photos/${sessionId}`, formData);
+        }
       } catch (err: any) {
         alert("Photos Upload Error: " + (err.response?.data?.error || err.message));
         setPhotos(null);
