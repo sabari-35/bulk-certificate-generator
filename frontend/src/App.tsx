@@ -80,6 +80,7 @@ function App() {
 
   const [status, setStatus] = useState<'idle' | 'generating' | 'completed' | 'error'>('idle');
   const [progress, setProgress] = useState({ total: 0, current: 0, skipped: 0, error_msg: '' });
+  const [isUploading, setIsUploading] = useState(false);
 
   // History State for Undo/Redo
   const [past, setPast] = useState<Config[]>([]);
@@ -249,6 +250,7 @@ function App() {
       setExcelFile(file);
       const formData = new FormData();
       formData.append('file', file);
+      setIsUploading(true);
       try {
         const res = await axios.post(`${API_BASE}/upload_excel/${sessionId}`, formData);
         setHeaders(res.data.headers);
@@ -263,6 +265,8 @@ function App() {
       } catch (err: any) {
         alert("Error: " + (err.response?.data?.error || err.message));
         setExcelFile(null);
+      } finally {
+        setIsUploading(false);
       }
     }
   };
@@ -274,12 +278,15 @@ function App() {
       setTemplateUrl(URL.createObjectURL(file));
       const formData = new FormData();
       formData.append('file', file);
+      setIsUploading(true);
       try {
         await axios.post(`${API_BASE}/upload_template/${sessionId}`, formData);
       } catch (err: any) {
         alert("Template Upload Error: " + (err.response?.data?.error || err.message));
         setTemplateFile(null);
         setTemplateUrl(null);
+      } finally {
+        setIsUploading(false);
       }
     }
   };
@@ -292,7 +299,16 @@ function App() {
       Array.from(e.target.files).forEach(file => {
         formData.append('files', file);
       });
-      await axios.post(`${API_BASE}/upload_photos/${sessionId}`, formData);
+      setIsUploading(true);
+      try {
+        await axios.post(`${API_BASE}/upload_photos/${sessionId}`, formData);
+      } catch (err: any) {
+        alert("Photos Upload Error: " + (err.response?.data?.error || err.message));
+        setPhotos(null);
+        setConfig(prev => ({ ...prev, photo_enabled: false }));
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
 
@@ -428,9 +444,9 @@ function App() {
           )}
 
           <div style={{ marginTop: 'auto' }}>
-            <button className="btn-primary" disabled={!allReady || status === 'generating'} onClick={startGeneration}>
-              {status === 'generating' ? <div className="upload-icon spin" style={{ width: 24, height: 24, color: 'white' }}><Settings /></div> : <Play size={24} />}
-              {status === 'generating' ? 'Generating...' : 'START BATCH'}
+            <button className="btn-primary" disabled={!allReady || status === 'generating' || isUploading} onClick={startGeneration}>
+              {status === 'generating' || isUploading ? <div className="upload-icon spin" style={{ width: 24, height: 24, color: 'white' }}><Settings /></div> : <Play size={24} />}
+              {status === 'generating' ? 'Generating...' : (isUploading ? 'UPLOADING...' : 'START BATCH')}
             </button>
           </div>
         </div>
