@@ -151,8 +151,8 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
             base = clean_id(os.path.splitext(fname)[0])
             available_photos[base] = fbytes
 
-        template_io.seek(0)
-        template_reader = ImageReader(template_io)
+        template_img = Image.open(io.BytesIO(session_data["template"])).convert("RGB")
+        template_reader = ImageReader(template_img)
 
         for index, r in df.iterrows():
             pdf.drawImage(template_reader, 0, 0, width=bg_img.width, height=bg_img.height)
@@ -168,8 +168,8 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
                     continue
                     
                 try:
-                    photo_io = io.BytesIO(photo_bytes)
-                    photo_reader = ImageReader(photo_io)
+                    photo_img = Image.open(io.BytesIO(photo_bytes))
+                    photo_reader = ImageReader(photo_img)
                     y_photo = bg_img.height - config.photo_y - config.photo_h
                     pdf.drawImage(photo_reader, config.photo_x, y_photo, width=config.photo_w, height=config.photo_h)
                 except Exception as e:
