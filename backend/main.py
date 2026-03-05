@@ -23,8 +23,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = "uploads"
-OUTPUT_DIR = "output"
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -60,7 +61,9 @@ async def init_session():
 
 @app.post("/api/upload_excel/{session_id}")
 async def upload_excel(session_id: str, file: UploadFile = File(...)):
-    file_location = os.path.join(UPLOAD_DIR, session_id, "data.xlsx")
+    session_dir = os.path.join(UPLOAD_DIR, session_id)
+    os.makedirs(session_dir, exist_ok=True)
+    file_location = os.path.join(session_dir, "data.xlsx")
     with open(file_location, "wb+") as file_object:
         shutil.copyfileobj(file.file, file_object)
     
@@ -87,7 +90,9 @@ async def upload_excel(session_id: str, file: UploadFile = File(...)):
 
 @app.post("/api/upload_template/{session_id}")
 async def upload_template(session_id: str, file: UploadFile = File(...)):
-    file_location = os.path.join(UPLOAD_DIR, session_id, "template.png")
+    session_dir = os.path.join(UPLOAD_DIR, session_id)
+    os.makedirs(session_dir, exist_ok=True)
+    file_location = os.path.join(session_dir, "template.png")
     with open(file_location, "wb+") as file_object:
         shutil.copyfileobj(file.file, file_object)
     return {"filename": file.filename}
@@ -95,6 +100,7 @@ async def upload_template(session_id: str, file: UploadFile = File(...)):
 @app.post("/api/upload_photos/{session_id}")
 async def upload_photos(session_id: str, files: List[UploadFile] = File(...)):
     photo_dir = os.path.join(UPLOAD_DIR, session_id, "photos")
+    os.makedirs(photo_dir, exist_ok=True)
     saved_count = 0
     for file in files:
         if file.filename:
