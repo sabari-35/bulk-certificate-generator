@@ -117,9 +117,18 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
     session_data["status"] = "generating"
     
     try:
+        if not session_data.get("excel"):
+            raise Exception("Excel data is missing in session.")
         df = pd.read_excel(io.BytesIO(session_data["excel"]))
-        template_io = io.BytesIO(session_data["template"])
-        bg_img = Image.open(template_io).convert("RGB")
+        
+        if not session_data.get("template"):
+            raise Exception("Template image is missing in session.")
+        template_bytes = session_data["template"]
+        try:
+            template_io = io.BytesIO(template_bytes)
+            bg_img = Image.open(template_io).convert("RGB")
+        except Exception as e:
+            raise Exception(f"Failed to decode template image (size: {len(template_bytes)} bytes): {e}")
         
         pdf_io = io.BytesIO()
         pdf = rl_canvas.Canvas(pdf_io, pagesize=bg_img.size)
@@ -173,7 +182,7 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
                     y_photo = bg_img.height - config.photo_y - config.photo_h
                     pdf.drawImage(photo_reader, config.photo_x, y_photo, width=config.photo_w, height=config.photo_h)
                 except Exception as e:
-                    print(f"Error loading photo {photo_identifier}: {e}")
+                    print(f"Error decoding photo {photo_identifier} (size: {len(photo_bytes)} bytes): {e}")
                     skipped += 1
                     session_data["skipped"] = skipped
                     session_data["current"] = index + 1
