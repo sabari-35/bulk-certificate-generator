@@ -23,14 +23,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+import io
+import zipfile
 
-# In-memory progress tracking
-progress_store: Dict[str, dict] = {}
+# In-memory session tracking (stores data + progress)
+session_store: Dict[str, dict] = {}
+
+
 
 class TextElementConfig(BaseModel):
     id: str
@@ -55,20 +54,21 @@ class GenerateConfig(BaseModel):
 @app.post("/api/init_session")
 async def init_session():
     session_id = uuid.uuid4().hex
-    os.makedirs(os.path.join(UPLOAD_DIR, session_id, "photos"), exist_ok=True)
-    progress_store[session_id] = {"status": "idle", "total": 0, "current": 0, "skipped": 0}
+    session_store[session_id] = {
+        "status": "idle", "total": 0, "current": 0, "skipped": 0,
+        "excel": None, "template": None, "photos": {}, "output_zip": None
+    }
     return {"session_id": session_id}
 
 @app.post("/api/upload_excel/{session_id}")
 async def upload_excel(session_id: str, file: UploadFile = File(...)):
-    session_dir = os.path.join(UPLOAD_DIR, session_id)
-    os.makedirs(session_dir, exist_ok=True)
-    file_location = os.path.join(session_dir, "data.xlsx")
-    with open(file_location, "wb+") as file_object:
-        shutil.copyfileobj(file.file, file_object)
+    if session_id not in session_store:
+        return JSONResponse(status_code=404, content={"error": "Session not found"})
+    content = await file.read()
+    session_store[session_id]["excel"] = content
     
     try:
-        df = pd.read_excel(file_location)
+        df = pd.read_excel(io.BytesIO(content))
         headers = df.columns.tolist()
         
         if len(df) == 0:
@@ -90,44 +90,41 @@ async def upload_excel(session_id: str, file: UploadFile = File(...)):
 
 @app.post("/api/upload_template/{session_id}")
 async def upload_template(session_id: str, file: UploadFile = File(...)):
-    session_dir = os.path.join(UPLOAD_DIR, session_id)
-    os.makedirs(session_dir, exist_ok=True)
-    file_location = os.path.join(session_dir, "template.png")
-    with open(file_location, "wb+") as file_object:
-        shutil.copyfileobj(file.file, file_object)
+    if session_id not in session_store:
+        return JSONResponse(status_code=404, content={"error": "Session not found"})
+    content = await file.read()
+    session_store[session_id]["template"] = content
     return {"filename": file.filename}
 
 @app.post("/api/upload_photos/{session_id}")
 async def upload_photos(session_id: str, files: List[UploadFile] = File(...)):
-    photo_dir = os.path.join(UPLOAD_DIR, session_id, "photos")
-    os.makedirs(photo_dir, exist_ok=True)
+    if session_id not in session_store:
+        return JSONResponse(status_code=404, content={"error": "Session not found"})
     saved_count = 0
     for file in files:
         if file.filename:
             safe_filename = file.filename.replace('\\', '/').split('/')[-1]
-            file_location = os.path.join(photo_dir, safe_filename)
-            with open(file_location, "wb+") as file_object:
-                shutil.copyfileobj(file.file, file_object)
+            content = await file.read()
+            session_store[session_id]["photos"][safe_filename] = content
             saved_count += 1
     return {"saved": saved_count}
 
 
 def generate_certificates_task(session_id: str, config: GenerateConfig):
-    progress_store[session_id]["status"] = "generating"
+    if session_id not in session_store:
+        return
+    session_data = session_store[session_id]
+    session_data["status"] = "generating"
     
-    excel_path = os.path.join(UPLOAD_DIR, session_id, "data.xlsx")
-    template_path = os.path.join(UPLOAD_DIR, session_id, "template.png")
-    photos_dir = os.path.join(UPLOAD_DIR, session_id, "photos")
-    out_dir = os.path.join(OUTPUT_DIR, session_id)
-    os.makedirs(out_dir, exist_ok=True)
-    out_pdf = os.path.join(out_dir, "certificates.pdf")
-
     try:
-        df = pd.read_excel(excel_path)
-        bg_img = Image.open(template_path).convert("RGB")
-        pdf = rl_canvas.Canvas(out_pdf, pagesize=bg_img.size)
+        df = pd.read_excel(io.BytesIO(session_data["excel"]))
+        template_io = io.BytesIO(session_data["template"])
+        bg_img = Image.open(template_io).convert("RGB")
+        
+        pdf_io = io.BytesIO()
+        pdf = rl_canvas.Canvas(pdf_io, pagesize=bg_img.size)
 
-        progress_store[session_id]["total"] = len(df)
+        session_data["total"] = len(df)
         generated = 0
         skipped = 0
 
@@ -149,35 +146,39 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
         def clean_id(s):
             return str(s).strip().replace(" ", "").upper()
 
-        available_photos = {clean_id(os.path.splitext(f)[0]): f for f in os.listdir(photos_dir)}
+        available_photos = {}
+        for fname, fbytes in session_data["photos"].items():
+            base = clean_id(os.path.splitext(fname)[0])
+            available_photos[base] = fbytes
+
+        template_io.seek(0)
+        template_reader = ImageReader(template_io)
 
         for index, r in df.iterrows():
-            # Draw the background natively to PDF 
-            pdf.drawImage(template_path, 0, 0, width=bg_img.width, height=bg_img.height)
+            pdf.drawImage(template_reader, 0, 0, width=bg_img.width, height=bg_img.height)
             
-            # 1. Handle Photo if enabled
             if config.photo_enabled and config.photo_column:
                 photo_identifier = clean_id(r.get(config.photo_column, ""))
-                photo_file = available_photos.get(photo_identifier)
+                photo_bytes = available_photos.get(photo_identifier)
                 
-                if not photo_file:
+                if not photo_bytes:
                     skipped += 1
-                    progress_store[session_id]["skipped"] = skipped
-                    progress_store[session_id]["current"] = index + 1
+                    session_data["skipped"] = skipped
+                    session_data["current"] = index + 1
                     continue
                     
-                photo_path = os.path.join(photos_dir, photo_file)
                 try:
+                    photo_io = io.BytesIO(photo_bytes)
+                    photo_reader = ImageReader(photo_io)
                     y_photo = bg_img.height - config.photo_y - config.photo_h
-                    pdf.drawImage(photo_path, config.photo_x, y_photo, width=config.photo_w, height=config.photo_h)
+                    pdf.drawImage(photo_reader, config.photo_x, y_photo, width=config.photo_w, height=config.photo_h)
                 except Exception as e:
-                    print(f"Error loading photo {photo_file}: {e}")
+                    print(f"Error loading photo {photo_identifier}: {e}")
                     skipped += 1
-                    progress_store[session_id]["skipped"] = skipped
-                    progress_store[session_id]["current"] = index + 1
+                    session_data["skipped"] = skipped
+                    session_data["current"] = index + 1
                     continue
 
-            # 2. Draw Dynamic Text Elements
             import re
             for el in config.text_elements:
                 val = str(r.get(el.column, ""))
@@ -191,13 +192,8 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
                 rl_font = get_rl_font(el.font_family)
                 font_size = int(el.font_size)
                 
-                # Symmetrical centering logic
                 text_w = pdfmetrics.stringWidth(val, rl_font, font_size)
                 draw_x = el.x + (el.w - text_w) / 2
-                
-                # Transform Web UI top-left coordinate to PDF bottom-left baseline coordinate.
-                # In the UI, the text is vertically centered using flexbox inside `el.h`. 
-                # We need to drop the text down by roughly half the box height, minus a baseline adjustment.
                 draw_y = bg_img.height - el.y - (el.h / 2) - (font_size * 0.3)
                 
                 pdf.setFont(rl_font, font_size)
@@ -205,23 +201,30 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
 
             pdf.showPage()
             generated += 1
-            progress_store[session_id]["current"] = index + 1
+            session_data["current"] = index + 1
 
         if generated == 0:
-            raise Exception("No certificates were generated. Check your photo matching column or ensure your Excel file has data.")
+            raise Exception("No certificates were generated.")
 
         pdf.save()
-        progress_store[session_id]["status"] = "completed"
-        progress_store[session_id]["final_generated"] = generated
+        
+        # Zip output natively in memory
+        zip_io = io.BytesIO()
+        with zipfile.ZipFile(zip_io, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("certificates.pdf", pdf_io.getvalue())
+            
+        session_data["output_zip"] = zip_io.getvalue()
+        session_data["status"] = "completed"
+        session_data["final_generated"] = generated
         
     except Exception as e:
-        progress_store[session_id]["status"] = "error"
-        progress_store[session_id]["error_msg"] = str(e)
+        session_data["status"] = "error"
+        session_data["error_msg"] = str(e)
 
 
 @app.post("/api/generate/{session_id}")
 async def start_generation(session_id: str, config: GenerateConfig, background_tasks: BackgroundTasks):
-    if session_id not in progress_store:
+    if session_id not in session_store:
         return JSONResponse(status_code=404, content={"error": "Session not found"})
     
     background_tasks.add_task(generate_certificates_task, session_id, config)
@@ -229,16 +232,32 @@ async def start_generation(session_id: str, config: GenerateConfig, background_t
 
 @app.get("/api/status/{session_id}")
 async def get_status(session_id: str):
-    if session_id not in progress_store:
+    if session_id not in session_store:
         return JSONResponse(status_code=404, content={"error": "Session not found"})
-    return progress_store[session_id]
+        
+    data = session_store[session_id]
+    return {
+        "status": data.get("status"),
+        "total": data.get("total"),
+        "current": data.get("current"),
+        "skipped": data.get("skipped"),
+        "error_msg": data.get("error_msg")
+    }
+
+from fastapi.responses import Response
 
 @app.get("/api/download/{session_id}")
 async def download_pdf(session_id: str):
-    out_pdf = os.path.join(OUTPUT_DIR, session_id, "certificates.pdf")
-    if os.path.exists(out_pdf):
-        return FileResponse(out_pdf, filename="certificates.pdf", media_type="application/pdf")
-    return JSONResponse(status_code=404, content={"error": "PDF not generated yet"})
+    if session_id not in session_store or not session_store[session_id].get("output_zip"):
+        return JSONResponse(status_code=404, content={"error": "ZIP not generated yet"})
+        
+    zip_bytes = session_store[session_id]["output_zip"]
+    
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=certificates.zip"}
+    )
 
 if __name__ == "__main__":
     import uvicorn

@@ -614,7 +614,7 @@ function App() {
                     </div>
                   </div>
                   <button className="btn-primary" style={{ width: 'auto', padding: '1rem 2rem' }} onClick={handleDownload}>
-                    <Download size={20} /> Download PDF
+                    <Download size={20} /> Download ZIP
                   </button>
                 </div>
               )}
