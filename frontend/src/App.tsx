@@ -321,12 +321,15 @@ function App() {
 
           const compressedChunk = [];
           for (const f of chunk) {
-            compressedChunk.push(await imageCompression(f, options));
+            compressedChunk.push({
+              file: await imageCompression(f, options),
+              name: f.name
+            });
           }
 
           const formData = new FormData();
-          compressedChunk.forEach(file => {
-            formData.append('files', file);
+          compressedChunk.forEach(item => {
+            formData.append('files', item.file, item.name);
           });
 
           await axios.post(`${API_BASE}/upload_photos/${sessionId}`, formData);

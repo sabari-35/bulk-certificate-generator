@@ -38,19 +38,25 @@ def get_session_dir(session_id: str):
 def read_status(session_id: str):
     sf = os.path.join(get_session_dir(session_id), "status.json")
     if os.path.exists(sf):
-        try:
-            with open(sf, "r") as f:
-                return json.load(f)
-        except:
-            return None
+        for _ in range(3):
+            try:
+                with open(sf, "r") as f:
+                    return json.load(f)
+            except:
+                import time
+                time.sleep(0.05)
     return None
 
 def update_status(session_id: str, updates: dict):
     sf = os.path.join(get_session_dir(session_id), "status.json")
     data = read_status(session_id) or {}
     data.update(updates)
-    with open(sf, "w") as f:
+    
+    # Write to temp file then rename for atomic cross-platform write
+    sf_tmp = sf + ".tmp"
+    with open(sf_tmp, "w") as f:
         json.dump(data, f)
+    os.replace(sf_tmp, sf)
 
 
 class TextElementConfig(BaseModel):
@@ -247,7 +253,7 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
                 update_status(session_id, {"current": index + 1})
 
         if generated == 0:
-            raise Exception("No certificates were generated.")
+            raise Exception("No certificates were generated. Check if your 118 photo names exactly match the values in the selected Excel column!")
 
         pdf.save()
         
