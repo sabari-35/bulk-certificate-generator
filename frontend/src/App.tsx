@@ -319,9 +319,10 @@ function App() {
         for (let i = 0; i < filesArray.length; i += CHUNK_SIZE) {
           const chunk = filesArray.slice(i, i + CHUNK_SIZE);
 
-          const compressedChunk = await Promise.all(
-            chunk.map(f => imageCompression(f, options))
-          );
+          const compressedChunk = [];
+          for (const f of chunk) {
+            compressedChunk.push(await imageCompression(f, options));
+          }
 
           const formData = new FormData();
           compressedChunk.forEach(file => {

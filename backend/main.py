@@ -18,7 +18,7 @@ app = FastAPI(title="Certificate Generator API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -211,10 +211,10 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
                     
                 photo_path = os.path.join(photos_dir, photo_file)
                 try:
-                    photo_img = Image.open(photo_path)
-                    photo_reader = ImageReader(photo_img)
-                    y_photo = bg_img.height - config.photo_y - config.photo_h
-                    pdf.drawImage(photo_reader, config.photo_x, y_photo, width=config.photo_w, height=config.photo_h)
+                    with Image.open(photo_path) as photo_img:
+                        photo_reader = ImageReader(photo_img)
+                        y_photo = bg_img.height - config.photo_y - config.photo_h
+                        pdf.drawImage(photo_reader, config.photo_x, y_photo, width=config.photo_w, height=config.photo_h)
                 except Exception as e:
                     print(f"Error decoding photo {photo_identifier}: {e}")
                     skipped += 1
