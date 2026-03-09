@@ -195,18 +195,48 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
         skipped = 0
 
         registered_fonts = set()
+        # Cross-platform font search paths
+        FONT_DIRS = [
+            "C:/Windows/Fonts",           # Windows
+            "/usr/share/fonts",            # Linux
+            "/usr/share/fonts/truetype",   # Debian/Ubuntu
+            "/usr/share/fonts/truetype/msttcorefonts",
+            "/usr/local/share/fonts",
+            os.path.join(os.path.dirname(__file__), "fonts"),  # Bundled fonts folder
+        ]
+        BOLD_FALLBACKS = ["DejaVuSans-Bold.ttf", "FreeSansBold.ttf", "LiberationSans-Bold.ttf"]
+
+        def find_font(filename):
+            """Search for a font file across known system directories."""
+            for d in FONT_DIRS:
+                candidate = os.path.join(d, filename)
+                if os.path.exists(candidate):
+                    return candidate
+            return None
+
         def get_rl_font(family):
             base_family = family.split('.')[0]
             if base_family not in registered_fonts:
-                try:
-                    pdfmetrics.registerFont(TTFont(base_family, f"C:/Windows/Fonts/{family}"))
-                    registered_fonts.add(base_family)
-                except:
+                # Try the requested font across all directories
+                font_path = find_font(family)
+                if font_path:
                     try:
-                        pdfmetrics.registerFont(TTFont(base_family, family))
+                        pdfmetrics.registerFont(TTFont(base_family, font_path))
                         registered_fonts.add(base_family)
+                        return base_family
                     except:
-                        return "Helvetica"
+                        pass
+                # Try fallback bold fonts
+                for fallback in BOLD_FALLBACKS:
+                    font_path = find_font(fallback)
+                    if font_path:
+                        try:
+                            pdfmetrics.registerFont(TTFont(base_family, font_path))
+                            registered_fonts.add(base_family)
+                            return base_family
+                        except:
+                            continue
+                return "Helvetica-Bold"
             return base_family
 
         def clean_id(s):
@@ -237,19 +267,28 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
                     photo_path = os.path.join(photos_dir, photo_file)
                     if not os.path.exists(photo_path):
                         try:
+                            # Try Supabase SDK download first
                             p_data = supabase.storage.from_("certificates").download(f"{session_id}/photos/{photo_file}")
                             with open(photo_path, "wb") as pf:
                                 pf.write(p_data)
+                        except Exception as e1:
+                            print(f"SDK download failed for {photo_file}: {e1}")
+                            try:
+                                # Fallback: use public URL download via urllib
+                                import urllib.request
+                                public_url = supabase.storage.from_("certificates").get_public_url(f"{session_id}/photos/{photo_file}")
+                                urllib.request.urlretrieve(public_url, photo_path)
+                            except Exception as e2:
+                                print(f"Public URL download also failed for {photo_file}: {e2}")
+                    if os.path.exists(photo_path):
+                        try:
+                            # Copy pixel data before passing to ImageReader to avoid black image
+                            photo_img_orig = Image.open(photo_path).convert("RGB")
+                            photo_reader = ImageReader(photo_img_orig)
+                            y_photo = bg_img.height - config.photo_y - config.photo_h
+                            pdf.drawImage(photo_reader, config.photo_x, y_photo, width=config.photo_w, height=config.photo_h)
                         except Exception as e:
-                            print(f"Failed to download photo {photo_file}: {e}")
-                    try:
-                        # Copy pixel data before closing file to avoid black image
-                        photo_img_orig = Image.open(photo_path).convert("RGB")
-                        photo_reader = ImageReader(photo_img_orig)
-                        y_photo = bg_img.height - config.photo_y - config.photo_h
-                        pdf.drawImage(photo_reader, config.photo_x, y_photo, width=config.photo_w, height=config.photo_h)
-                    except Exception as e:
-                        print(f"Error decoding photo {photo_identifier}: {e}")
+                            print(f"Error rendering photo {photo_identifier}: {e}")
                 else:
                     print(f"No photo found for identifier: {photo_identifier}")
 
