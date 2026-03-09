@@ -160,10 +160,12 @@ async def upload_photos(session_id: str, payload: UploadNotification):
 
 
 def generate_certificates_task(session_id: str, config: GenerateConfig):
-    print("Received generation config:", config.dict())
     session_dir = get_session_dir(session_id)
     if not os.path.exists(session_dir):
         return
+        
+    with open(os.path.join(session_dir, "debug_config.json"), "w") as f:
+        json.dump(config.dict(), f, indent=4)
         
     update_status(session_id, {"status": "generating"})
     
@@ -231,29 +233,25 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
                 photo_identifier = clean_id(r.get(config.photo_column, ""))
                 photo_file = available_photos.get(photo_identifier)
                 
-                if not photo_file:
-                    skipped += 1
-                    update_status(session_id, {"skipped": skipped, "current": index + 1})
-                    continue
-                    
-                photo_path = os.path.join(photos_dir, photo_file)
-                if not os.path.exists(photo_path):
+                if photo_file:
+                    photo_path = os.path.join(photos_dir, photo_file)
+                    if not os.path.exists(photo_path):
+                        try:
+                            p_data = supabase.storage.from_("certificates").download(f"{session_id}/photos/{photo_file}")
+                            with open(photo_path, "wb") as pf:
+                                pf.write(p_data)
+                        except Exception as e:
+                            print(f"Failed to download photo {photo_file}: {e}")
                     try:
-                        p_data = supabase.storage.from_("certificates").download(f"{session_id}/photos/{photo_file}")
-                        with open(photo_path, "wb") as pf:
-                            pf.write(p_data)
-                    except Exception as e:
-                        print(f"Failed to download photo {photo_file}: {e}")
-                try:
-                    with Image.open(photo_path) as photo_img:
-                        photo_reader = ImageReader(photo_img)
+                        # Copy pixel data before closing file to avoid black image
+                        photo_img_orig = Image.open(photo_path).convert("RGB")
+                        photo_reader = ImageReader(photo_img_orig)
                         y_photo = bg_img.height - config.photo_y - config.photo_h
                         pdf.drawImage(photo_reader, config.photo_x, y_photo, width=config.photo_w, height=config.photo_h)
-                except Exception as e:
-                    print(f"Error decoding photo {photo_identifier}: {e}")
-                    skipped += 1
-                    update_status(session_id, {"skipped": skipped, "current": index + 1})
-                    continue
+                    except Exception as e:
+                        print(f"Error decoding photo {photo_identifier}: {e}")
+                else:
+                    print(f"No photo found for identifier: {photo_identifier}")
 
             import re
             for el in config.text_elements:
@@ -294,7 +292,7 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
                 supabase.storage.from_("certificates").upload(
                     f"{session_id}/certificates.zip", 
                     zf.read(), 
-                    file_options={"upsert": "true", "content-type": "application/zip"}
+                    file_options={"upsert": "true", "x-upsert": "true", "content-type": "application/zip"}
                 )
         except Exception as e:
             print("Failed to upload ZIP to Supabase", e)

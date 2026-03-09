@@ -290,7 +290,6 @@ function App() {
   const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0] && sessionId) {
       let file = e.target.files[0];
-      setTemplateUrl(URL.createObjectURL(file));
       setIsUploading(true);
 
       try {
@@ -301,6 +300,9 @@ function App() {
         };
         file = await imageCompression(file, options);
         setTemplateFile(file);
+        // IMPORTANT: Set the preview URL from the COMPRESSED file so that
+        // bgSize (and all element coordinates) match the backend's image exactly.
+        setTemplateUrl(URL.createObjectURL(file));
 
         // Upload to Supabase
         const filePath = `${sessionId}/template.png`;
