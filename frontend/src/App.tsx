@@ -2,8 +2,14 @@ import React, { useState, useRef, useEffect, SyntheticEvent } from 'react';
 import { Upload, FileSpreadsheet, Image as ImageIcon, Folder, Settings, Download, Play, CheckCircle2, AlertCircle, Plus, X, Trash2 } from 'lucide-react';
 import { Rnd } from 'react-rnd';
 import axios from 'axios';
+import { createClient } from '@supabase/supabase-js';
 import imageCompression from 'browser-image-compression';
 import './index.css';
+
+// Initialize Supabase client
+const SUPABASE_URL = 'https://yolgqavimghcmpkqmhdy.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlvbGdxYXZpbWdoY21wa3FtaGR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMjA2MjIsImV4cCI6MjA4ODU5NjYyMn0.NK6_eoUFYB6Zic5IqevDrdWnbLkmTxY_OwASDBRK60Q'; // Ensure this matches what user provided
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -253,7 +259,16 @@ function App() {
       formData.append('file', file);
       setIsUploading(true);
       try {
-        const res = await axios.post(`${API_BASE}/upload_excel/${sessionId}`, formData);
+        // 1. Upload Excel to Supabase Storage
+        const filePath = `${sessionId}/data.xlsx`;
+        const { error: uploadError } = await supabase.storage
+          .from('certificates')
+          .upload(filePath, file, { upsert: true });
+
+        if (uploadError) throw new Error("Supabase Upload Error: " + uploadError.message);
+
+        // 2. Notify backend to parse the uploaded Excel file
+        const res = await axios.post(`${API_BASE}/upload_excel/${sessionId}`, { file_path: filePath });
         setHeaders(res.data.headers);
         setPreviewData(res.data.preview_data);
 
@@ -287,9 +302,16 @@ function App() {
         file = await imageCompression(file, options);
         setTemplateFile(file);
 
-        const formData = new FormData();
-        formData.append('file', file);
-        await axios.post(`${API_BASE}/upload_template/${sessionId}`, formData);
+        // Upload to Supabase
+        const filePath = `${sessionId}/template.png`;
+        const { error: uploadError } = await supabase.storage
+          .from('certificates')
+          .upload(filePath, file, { upsert: true });
+
+        if (uploadError) throw new Error("Supabase Upload Error: " + uploadError.message);
+
+        // Notify Backend
+        await axios.post(`${API_BASE}/upload_template/${sessionId}`, { file_path: filePath });
       } catch (err: any) {
         alert("Template Upload Error: " + (err.response?.data?.error || err.message));
         setTemplateFile(null);
@@ -319,20 +341,26 @@ function App() {
         for (let i = 0; i < filesArray.length; i += CHUNK_SIZE) {
           const chunk = filesArray.slice(i, i + CHUNK_SIZE);
 
-          const compressedChunk = [];
-          for (const f of chunk) {
-            compressedChunk.push({
-              file: await imageCompression(f, options),
-              name: f.name
-            });
-          }
+          // Compress and Upload in parallel for this chunk
+          const uploadPromises = chunk.map(async (f) => {
+            const compressed = await imageCompression(f, options);
+            const safe_filename = f.name.replace(/\\/g, '/').split('/').pop();
+            const filePath = `${sessionId}/photos/${safe_filename}`;
 
-          const formData = new FormData();
-          compressedChunk.forEach(item => {
-            formData.append('files', item.file, item.name);
+            const { error: uploadError } = await supabase.storage
+              .from('certificates')
+              .upload(filePath, compressed, { upsert: true });
+
+            if (uploadError) {
+              console.error("Failed to upload photo:", f.name, uploadError);
+            }
           });
 
-          await axios.post(`${API_BASE}/upload_photos/${sessionId}`, formData);
+          await Promise.all(uploadPromises);
+
+          // Instead of sending the files, we just let the backend know photos are uploaded later if necessary
+          // Or we can just hit an endpoint to register them
+          await axios.post(`${API_BASE}/upload_photos/${sessionId}`, { count: chunk.length });
         }
       } catch (err: any) {
         alert("Photos Upload Error: " + (err.response?.data?.error || err.message));

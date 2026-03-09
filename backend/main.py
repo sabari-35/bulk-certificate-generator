@@ -5,9 +5,10 @@ import pandas as pd
 from typing import List, Dict, Optional
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
+from supabase import create_client, Client
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.ttfonts import TTFont
@@ -58,6 +59,13 @@ def update_status(session_id: str, updates: dict):
         json.dump(data, f)
     os.replace(sf_tmp, sf)
 
+SUPABASE_URL = "https://yolgqavimghcmpkqmhdy.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlvbGdxYXZpbWdoY21wa3FtaGR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMjA2MjIsImV4cCI6MjA4ODU5NjYyMn0.NK6_eoUFYB6Zic5IqevDrdWnbLkmTxY_OwASDBRK60Q"
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+class UploadNotification(BaseModel):
+    file_path: Optional[str] = None
+    count: Optional[int] = None
 
 class TextElementConfig(BaseModel):
     id: str
@@ -90,14 +98,18 @@ async def init_session():
     return {"session_id": session_id}
 
 @app.post("/api/upload_excel/{session_id}")
-async def upload_excel(session_id: str, file: UploadFile = File(...)):
+async def upload_excel(session_id: str, payload: UploadNotification):
     session_dir = get_session_dir(session_id)
     if not os.path.exists(session_dir):
         return JSONResponse(status_code=404, content={"error": "Session not found"})
     
     file_location = os.path.join(session_dir, "data.xlsx")
-    with open(file_location, "wb+") as file_object:
-        shutil.copyfileobj(file.file, file_object)
+    try:
+        res = supabase.storage.from_("certificates").download(payload.file_path)
+        with open(file_location, "wb") as f:
+            f.write(res)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"Failed to download from Supabase: {str(e)}"})
     
     try:
         df = pd.read_excel(file_location)
@@ -113,7 +125,7 @@ async def upload_excel(session_id: str, file: UploadFile = File(...)):
             preview_data[h] = str(val) if pd.notna(val) else ""
             
         return {
-            "filename": file.filename, 
+            "filename": "data.xlsx", 
             "headers": headers,
             "preview_data": preview_data
         }
@@ -121,37 +133,34 @@ async def upload_excel(session_id: str, file: UploadFile = File(...)):
         return JSONResponse(status_code=400, content={"error": str(e)})
 
 @app.post("/api/upload_template/{session_id}")
-async def upload_template(session_id: str, file: UploadFile = File(...)):
+async def upload_template(session_id: str, payload: UploadNotification):
     session_dir = get_session_dir(session_id)
     if not os.path.exists(session_dir):
         return JSONResponse(status_code=404, content={"error": "Session not found"})
     
     file_location = os.path.join(session_dir, "template.png")
-    with open(file_location, "wb+") as file_object:
-        shutil.copyfileobj(file.file, file_object)
+    try:
+        res = supabase.storage.from_("certificates").download(payload.file_path)
+        with open(file_location, "wb") as f:
+            f.write(res)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"Failed to download template: {str(e)}"})
         
-    return {"filename": file.filename}
+    return {"filename": "template.png"}
 
 @app.post("/api/upload_photos/{session_id}")
-async def upload_photos(session_id: str, files: List[UploadFile] = File(...)):
+async def upload_photos(session_id: str, payload: UploadNotification):
     session_dir = get_session_dir(session_id)
     if not os.path.exists(session_dir):
         return JSONResponse(status_code=404, content={"error": "Session not found"})
         
     photo_dir = os.path.join(session_dir, "photos")
     os.makedirs(photo_dir, exist_ok=True)
-    saved_count = 0
-    for file in files:
-        if file.filename:
-            safe_filename = file.filename.replace('\\', '/').split('/')[-1]
-            file_location = os.path.join(photo_dir, safe_filename)
-            with open(file_location, "wb+") as file_object:
-                shutil.copyfileobj(file.file, file_object)
-            saved_count += 1
-    return {"saved": saved_count}
+    return {"saved": payload.count}
 
 
 def generate_certificates_task(session_id: str, config: GenerateConfig):
+    print("Received generation config:", config.dict())
     session_dir = get_session_dir(session_id)
     if not os.path.exists(session_dir):
         return
@@ -201,7 +210,19 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
         def clean_id(s):
             return str(s).strip().replace(" ", "").upper()
 
-        available_photos = {clean_id(os.path.splitext(f)[0]): f for f in os.listdir(photos_dir)} if os.path.exists(photos_dir) else {}
+        os.makedirs(photos_dir, exist_ok=True)
+        available_photos = {clean_id(os.path.splitext(f)[0]): f for f in os.listdir(photos_dir)}
+        if config.photo_enabled:
+            try:
+                # To handle large numbers of files, try to retrieve them
+                # supabase-py v1.0 list method can take limit options if imported
+                res = supabase.storage.from_("certificates").list(f"{session_id}/photos")
+                for item in res:
+                    if "name" in item and item["name"] and item["name"] != ".emptyFolderPlaceholder":
+                        name = item["name"]
+                        available_photos[clean_id(os.path.splitext(name)[0])] = name
+            except Exception as e:
+                print("Supabase list photos error:", e)
 
         for index, r in df.iterrows():
             pdf.drawImage(template_path, 0, 0, width=bg_img.width, height=bg_img.height)
@@ -216,6 +237,13 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
                     continue
                     
                 photo_path = os.path.join(photos_dir, photo_file)
+                if not os.path.exists(photo_path):
+                    try:
+                        p_data = supabase.storage.from_("certificates").download(f"{session_id}/photos/{photo_file}")
+                        with open(photo_path, "wb") as pf:
+                            pf.write(p_data)
+                    except Exception as e:
+                        print(f"Failed to download photo {photo_file}: {e}")
                 try:
                     with Image.open(photo_path) as photo_img:
                         photo_reader = ImageReader(photo_img)
@@ -261,6 +289,16 @@ def generate_certificates_task(session_id: str, config: GenerateConfig):
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.write(out_pdf, "certificates.pdf")
             
+        try:
+            with open(zip_path, "rb") as zf:
+                supabase.storage.from_("certificates").upload(
+                    f"{session_id}/certificates.zip", 
+                    zf.read(), 
+                    file_options={"upsert": "true", "content-type": "application/zip"}
+                )
+        except Exception as e:
+            print("Failed to upload ZIP to Supabase", e)
+            
         update_status(session_id, {
             "status": "completed", 
             "final_generated": generated,
@@ -286,19 +324,15 @@ async def get_status(session_id: str):
         return JSONResponse(status_code=404, content={"error": "Session not found"})
     return data
 
-from fastapi.responses import FileResponse
-
 @app.get("/api/download/{session_id}")
 async def download_pdf(session_id: str):
-    zip_path = os.path.join(get_session_dir(session_id), "certificates.zip")
-    if not os.path.exists(zip_path):
-        return JSONResponse(status_code=404, content={"error": "ZIP not generated yet"})
-        
-    return FileResponse(
-        path=zip_path,
-        media_type="application/zip",
-        filename="certificates.zip"
-    )
+    try:
+        # Generate short-lived signed URL or get public URL
+        # For public bucket:
+        public_url = supabase.storage.from_("certificates").get_public_url(f"{session_id}/certificates.zip")
+        return RedirectResponse(url=public_url)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"Could not get download link: {str(e)}"})
 
 if __name__ == "__main__":
     import uvicorn
