@@ -1,17 +1,16 @@
 import React, { useState, useRef, useEffect, SyntheticEvent } from 'react';
 import { Upload, FileSpreadsheet, Image as ImageIcon, Folder, Settings, Download, Play, CheckCircle2, AlertCircle, Plus, X, Trash2 } from 'lucide-react';
 import { Rnd } from 'react-rnd';
-import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
 import imageCompression from 'browser-image-compression';
+import * as XLSX from 'xlsx';
+import { generateCertificates, ProgressState } from './utils/generate';
 import './index.css';
 
 // Initialize Supabase client
 const SUPABASE_URL = 'https://yolgqavimghcmpkqmhdy.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlvbGdxYXZpbWdoY21wa3FtaGR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMjA2MjIsImV4cCI6MjA4ODU5NjYyMn0.NK6_eoUFYB6Zic5IqevDrdWnbLkmTxY_OwASDBRK60Q'; // Ensure this matches what user provided
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 interface TextElement {
   id: string;
@@ -59,8 +58,6 @@ const getCssForFont = (fontFile: string): React.CSSProperties => {
 };
 
 function App() {
-  const [sessionId, setSessionId] = useState<string | null>(null);
-
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   const [previewData, setPreviewData] = useState<Record<string, string>>({});
@@ -207,29 +204,7 @@ function App() {
   }, [activeElement]);
 
 
-  useEffect(() => {
-    axios.post(`${API_BASE}/init_session`).then(res => {
-      setSessionId(res.data.session_id);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (status === 'generating' && sessionId) {
-      const interval = setInterval(async () => {
-        try {
-          const res = await axios.get(`${API_BASE}/status/${sessionId}`);
-          setProgress(res.data);
-          if (res.data.status === 'completed' || res.data.status === 'error') {
-            setStatus(res.data.status);
-            clearInterval(interval);
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }, 1000);
-      return () => clearInterval(interval);
-    }
-  }, [status, sessionId]);
+  // No more polling APIs for status, our local generator handles it
 
   useEffect(() => {
     const updateScale = () => {
@@ -252,34 +227,39 @@ function App() {
   };
 
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0] && sessionId) {
+    if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setExcelFile(file);
-      const formData = new FormData();
-      formData.append('file', file);
       setIsUploading(true);
       try {
-        // 1. Upload Excel to Supabase Storage
-        const filePath = `${sessionId}/data.xlsx`;
-        const { error: uploadError } = await supabase.storage
-          .from('certificates')
-          .upload(filePath, file, { upsert: true });
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheet = workbook.SheetNames[0];
+        const rows = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[firstSheet]);
+        
+        if (rows.length > 0) {
+           const headersList = Object.keys(rows[0]);
+           setHeaders(headersList);
+           
+           // Convert preview data to mostly strings
+           const preview: Record<string, string> = {};
+           headersList.forEach(h => {
+             preview[h] = String(rows[0][h] || '');
+           });
+           setPreviewData(preview);
 
-        if (uploadError) throw new Error("Supabase Upload Error: " + uploadError.message);
-
-        // 2. Notify backend to parse the uploaded Excel file
-        const res = await axios.post(`${API_BASE}/upload_excel/${sessionId}`, { file_path: filePath });
-        setHeaders(res.data.headers);
-        setPreviewData(res.data.preview_data);
-
-        // Auto-select photo col if something looks like an ID or matching name
-        let pCol = config.photo_column;
-        if (!pCol && res.data.headers.length > 0) {
-          pCol = res.data.headers.find((h: string) => h.toUpperCase().includes('CERTIFICATE') || h.toUpperCase().includes('ID')) || res.data.headers[0];
-          setConfig(prev => ({ ...prev, photo_column: pCol }));
+           // Auto-select photo col
+           let pCol = config.photo_column;
+           if (!pCol && headersList.length > 0) {
+             pCol = headersList.find(h => h.toUpperCase().includes('CERTIFICATE') || h.toUpperCase().includes('ID')) || headersList[0];
+             setConfig(prev => ({ ...prev, photo_column: pCol }));
+           }
+        } else {
+           throw new Error("Excel file is empty");
         }
+        
       } catch (err: any) {
-        alert("Error: " + (err.response?.data?.error || err.message));
+        alert("Error: " + (err.message));
         setExcelFile(null);
       } finally {
         setIsUploading(false);
@@ -288,7 +268,7 @@ function App() {
   };
 
   const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0] && sessionId) {
+    if (e.target.files && e.target.files[0]) {
       let file = e.target.files[0];
       setIsUploading(true);
 
@@ -300,22 +280,10 @@ function App() {
         };
         file = await imageCompression(file, options);
         setTemplateFile(file);
-        // IMPORTANT: Set the preview URL from the COMPRESSED file so that
-        // bgSize (and all element coordinates) match the backend's image exactly.
         setTemplateUrl(URL.createObjectURL(file));
 
-        // Upload to Supabase
-        const filePath = `${sessionId}/template.png`;
-        const { error: uploadError } = await supabase.storage
-          .from('certificates')
-          .upload(filePath, file, { upsert: true });
-
-        if (uploadError) throw new Error("Supabase Upload Error: " + uploadError.message);
-
-        // Notify Backend
-        await axios.post(`${API_BASE}/upload_template/${sessionId}`, { file_path: filePath });
       } catch (err: any) {
-        alert("Template Upload Error: " + (err.response?.data?.error || err.message));
+        alert("Template Upload Error: " + (err.message));
         setTemplateFile(null);
         setTemplateUrl(null);
       } finally {
@@ -325,52 +293,9 @@ function App() {
   };
 
   const handlePhotosUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0 && sessionId) {
+    if (e.target.files && e.target.files.length > 0) {
       setPhotos(e.target.files);
       setConfig(prev => ({ ...prev, photo_enabled: true }));
-      setIsUploading(true);
-
-      try {
-        const options = {
-          maxSizeMB: 0.3,
-          maxWidthOrHeight: 800,
-          useWebWorker: true
-        };
-
-        const filesArray = Array.from(e.target.files);
-        // Process and upload in chunks of 20 to avoid payload too large and timeouts
-        const CHUNK_SIZE = 20;
-        for (let i = 0; i < filesArray.length; i += CHUNK_SIZE) {
-          const chunk = filesArray.slice(i, i + CHUNK_SIZE);
-
-          // Compress and Upload in parallel for this chunk
-          const uploadPromises = chunk.map(async (f) => {
-            const compressed = await imageCompression(f, options);
-            const safe_filename = f.name.replace(/\\/g, '/').split('/').pop();
-            const filePath = `${sessionId}/photos/${safe_filename}`;
-
-            const { error: uploadError } = await supabase.storage
-              .from('certificates')
-              .upload(filePath, compressed, { upsert: true });
-
-            if (uploadError) {
-              console.error("Failed to upload photo:", f.name, uploadError);
-            }
-          });
-
-          await Promise.all(uploadPromises);
-
-          // Instead of sending the files, we just let the backend know photos are uploaded later if necessary
-          // Or we can just hit an endpoint to register them
-          await axios.post(`${API_BASE}/upload_photos/${sessionId}`, { count: chunk.length });
-        }
-      } catch (err: any) {
-        alert("Photos Upload Error: " + (err.response?.data?.error || err.message));
-        setPhotos(null);
-        setConfig(prev => ({ ...prev, photo_enabled: false }));
-      } finally {
-        setIsUploading(false);
-      }
     }
   };
 
@@ -406,20 +331,19 @@ function App() {
   };
 
   const startGeneration = async () => {
-    if (!sessionId) return;
+    if (!excelFile || !templateFile) return;
     setStatus('generating');
-    try {
-      await axios.post(`${API_BASE}/generate/${sessionId}`, config);
-    } catch (err: any) {
-      setStatus('error');
-      setProgress(p => ({ ...p, error_msg: err.response?.data?.error || err.message }));
-    }
+    
+    await generateCertificates(excelFile, templateFile, photos, config, (prog: ProgressState) => {
+        setProgress(prog);
+        setStatus(prog.status);
+    });
   };
 
   const handleDownload = () => {
-    if (sessionId) {
-      window.open(`${API_BASE}/download/${sessionId}`, '_blank');
-    }
+    // With client-side generation, the download triggers automatically via FileSaver.
+    // If they click it again, we might not have the zip. But we can just say to re-generate or hide button.
+    alert("ZIP file was already downloaded to your computer automatically!");
   };
 
   const allReady = excelFile && templateFile;
