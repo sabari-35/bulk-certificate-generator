@@ -1,15 +1,18 @@
 import React, { useState, useRef, useEffect, SyntheticEvent } from 'react';
-import { Upload, FileSpreadsheet, Image as ImageIcon, Folder, Settings, Download, Play, CheckCircle2, AlertCircle, Plus, X, Trash2 } from 'lucide-react';
+import { 
+  FileSpreadsheet, Image as ImageIcon, Folder, Settings, 
+  Download, Play, CheckCircle2, AlertCircle, Plus, X, Trash2,
+  ChevronLeft, ChevronRight, Layout, Type, Image as ImgIcon, MousePointer2 
+} from 'lucide-react';
 import { Rnd } from 'react-rnd';
 import { createClient } from '@supabase/supabase-js';
-import imageCompression from 'browser-image-compression';
 import * as XLSX from 'xlsx';
 import { generateCertificates, ProgressState } from './utils/generate';
 import './index.css';
 
 // Initialize Supabase client
 const SUPABASE_URL = 'https://yolgqavimghcmpkqmhdy.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlvbGdxYXZpbWdoY21wa3FtaGR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMjA2MjIsImV4cCI6MjA4ODU5NjYyMn0.NK6_eoUFYB6Zic5IqevDrdWnbLkmTxY_OwASDBRK60Q'; // Ensure this matches what user provided
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlvbGdxYXZpbWdoY21wa3FtaGR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMjA2MjIsImV4cCI6MjA4ODU5NjYyMn0.NK6_eoUFYB6Zic5IqevDrdWnbLkmTxY_OwASDBRK60Q';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 interface TextElement {
@@ -60,7 +63,8 @@ const getCssForFont = (fontFile: string): React.CSSProperties => {
 function App() {
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
-  const [previewData, setPreviewData] = useState<Record<string, string>>({});
+  const [allRows, setAllRows] = useState<Record<string, string>[]>([]);
+  const [previewIndex, setPreviewIndex] = useState(0);
 
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [templateUrl, setTemplateUrl] = useState<string | null>(null);
@@ -86,7 +90,7 @@ function App() {
   const [progress, setProgress] = useState({ total: 0, current: 0, skipped: 0, error_msg: '' });
   const [isUploading, setIsUploading] = useState(false);
 
-  // History State for Undo/Redo
+  // History State
   const [past, setPast] = useState<Config[]>([]);
   const [future, setFuture] = useState<Config[]>([]);
 
@@ -123,7 +127,6 @@ function App() {
     });
   };
 
-  // Keyboard Shortcuts Listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'SELECT') return;
@@ -180,46 +183,26 @@ function App() {
           }));
         }
       }
-
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
-        e.preventDefault();
-        updateConfigWithHistory(c => ({
-          ...c,
-          text_elements: c.text_elements.map(el => {
-            if (el.id === activeElement) {
-              const isBold = el.font_family.includes('bd');
-              let newFont = el.font_family;
-              if (isBold) newFont = newFont.replace('bd', '');
-              else newFont = newFont.replace('.ttf', 'bd.ttf');
-              return { ...el, font_family: newFont };
-            }
-            return el;
-          })
-        }));
-      }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeElement]);
-
-
-  // No more polling APIs for status, our local generator handles it
 
   useEffect(() => {
     const updateScale = () => {
       if (containerRef.current && templateUrl) {
         const cw = containerRef.current.clientWidth;
         const ch = containerRef.current.clientHeight;
-        const scaleX = cw / bgSize.width;
-        const scaleY = ch / bgSize.height;
+        const scaleX = (cw - 40) / bgSize.width;
+        const scaleY = (ch - 40) / bgSize.height;
         setScale(Math.min(scaleX, scaleY, 1));
       }
     };
     window.addEventListener('resize', updateScale);
-    updateScale();
+    // Initial scale check with slight delay to ensure DOM is ready
+    setTimeout(updateScale, 50);
     return () => window.removeEventListener('resize', updateScale);
-  }, [bgSize, templateUrl]);
+  }, [bgSize, templateUrl, status]);
 
   const onImageLoad = (e: SyntheticEvent<HTMLImageElement, Event>) => {
     const img = e.currentTarget;
@@ -241,14 +224,15 @@ function App() {
            const headersList = Object.keys(rows[0]);
            setHeaders(headersList);
            
-           // Convert preview data to mostly strings
-           const preview: Record<string, string> = {};
-           headersList.forEach(h => {
-             preview[h] = String(rows[0][h] || '');
+           const stringRows = rows.map(row => {
+             const strRow: Record<string, string> = {};
+             headersList.forEach(h => { strRow[h] = String(row[h] || ''); });
+             return strRow;
            });
-           setPreviewData(preview);
+           
+           setAllRows(stringRows);
+           setPreviewIndex(0);
 
-           // Auto-select photo col
            let pCol = config.photo_column;
            if (!pCol && headersList.length > 0) {
              pCol = headersList.find(h => h.toUpperCase().includes('CERTIFICATE') || h.toUpperCase().includes('ID')) || headersList[0];
@@ -257,7 +241,6 @@ function App() {
         } else {
            throw new Error("Excel file is empty");
         }
-        
       } catch (err: any) {
         alert("Error: " + (err.message));
         setExcelFile(null);
@@ -267,32 +250,16 @@ function App() {
     }
   };
 
-  const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      let file = e.target.files[0];
-      setIsUploading(true);
-
-      try {
-        const options = {
-          maxSizeMB: 1,
-          maxWidthOrHeight: 2500,
-          useWebWorker: true
-        };
-        file = await imageCompression(file, options);
-        setTemplateFile(file);
-        setTemplateUrl(URL.createObjectURL(file));
-
-      } catch (err: any) {
-        alert("Template Upload Error: " + (err.message));
-        setTemplateFile(null);
-        setTemplateUrl(null);
-      } finally {
-        setIsUploading(false);
-      }
+      const file = e.target.files[0];
+      setTemplateFile(file);
+      // Removed heavy browser-image-compression for instant canvas preview.
+      setTemplateUrl(URL.createObjectURL(file));
     }
   };
 
-  const handlePhotosUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotosUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setPhotos(e.target.files);
       setConfig(prev => ({ ...prev, photo_enabled: true }));
@@ -341,113 +308,100 @@ function App() {
   };
 
   const handleDownload = () => {
-    // With client-side generation, the download triggers automatically via FileSaver.
-    // If they click it again, we might not have the zip. But we can just say to re-generate or hide button.
     alert("ZIP file was already downloaded to your computer automatically!");
   };
 
   const allReady = excelFile && templateFile;
+  const currentPreviewData = allRows.length > 0 ? allRows[previewIndex] : {};
 
   return (
     <div className="app-container">
-      <header className="header">
-        <h1 className="text-gradient">Certificate Studio</h1>
-        <p>Fully Dynamic Drag & Drop Certificate Engine</p>
+      {/* Top Navbar */}
+      <header className="topbar">
+        <div className="brand">
+          <Layout size={24} /> 
+          <span>Certificate Studio</span>
+        </div>
+        <div className="topbar-actions">
+          {isUploading && <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Processing files...</span>}
+          <button className="btn btn-secondary" disabled={!allReady || status === 'generating' || isUploading} onClick={startGeneration}>
+            {status === 'generating' || isUploading ? <div className="spin"><Settings size={18} /></div> : <Play size={18} />} 
+            {status === 'generating' ? 'Generating...' : 'Batch Generate'}
+          </button>
+        </div>
       </header>
 
-      <div className="main-content">
-        <div className="glass-panel controls-sidebar" style={{ padding: '2rem' }}>
-          <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Settings size={20} className="text-gradient" /> Project Assets
-          </h2>
-
-          <label className={`upload-zone glass-panel ${excelFile ? 'success' : ''}`}>
-            <input type="file" accept=".xlsx" className="hidden-input" onChange={handleExcelUpload} />
-            <FileSpreadsheet className="upload-icon" />
-            <div>
-              <div className="upload-label">{excelFile ? 'Data Loaded' : 'Upload Data (Excel)'}</div>
-              <div className="upload-subtext">{excelFile ? excelFile.name : 'Select your spreadsheet'}</div>
-            </div>
-          </label>
-
-          <label className={`upload-zone glass-panel ${templateFile ? 'success' : ''}`}>
-            <input type="file" accept="image/*" className="hidden-input" onChange={handleTemplateUpload} />
-            <ImageIcon className="upload-icon" />
-            <div>
-              <div className="upload-label">{templateFile ? 'Template Loaded' : 'Upload Template'}</div>
-              <div className="upload-subtext">{templateFile ? templateFile.name : 'PNG or JPG background'}</div>
-            </div>
-          </label>
-
-          <label className={`upload-zone glass-panel ${photos ? 'success' : ''}`}>
-            <input type="file" accept="image/*" className="hidden-input"
-              // @ts-ignore
-              webkitdirectory="true" directory="true" multiple onChange={handlePhotosUpload}
-            />
-            <Folder className="upload-icon" />
-            <div>
-              <div className="upload-label">{photos ? `${photos.length} Photos Loaded` : 'Select Photos Folder (Optional)'}</div>
-              <div className="upload-subtext">{photos ? 'Photo matching enabled' : 'Names match identifier column'}</div>
-            </div>
-          </label>
-
-          {/* Dynamic Tools */}
-          {headers.length > 0 && templateUrl && (
-            <div style={{ marginTop: '1rem' }}>
-              <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--text-secondary)' }}>Add Elements to Canvas</h3>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                {headers.map(h => (
-                  <button
-                    key={h}
-                    onClick={() => addTextElement(h)}
-                    style={{
-                      background: 'var(--glass-bg)', border: '1px solid var(--glass-border)',
-                      color: 'white', padding: '0.5rem 1rem', borderRadius: '20px',
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem',
-                      fontSize: '0.85rem'
-                    }}
-                  >
-                    <Plus size={14} /> {h}
-                  </button>
-                ))}
+      <div className="main-workspace">
+        {/* Left Sidebar */}
+        <aside className="sidebar">
+          <div className="sidebar-header">
+            <h2><Settings size={18} /> Assets & Configuration</h2>
+          </div>
+          <div className="sidebar-content">
+            
+            <label className={`upload-zone ${templateFile ? 'success' : ''}`}>
+              <input type="file" accept="image/*" className="hidden-input" onChange={handleTemplateUpload} />
+              <ImgIcon className="upload-icon" size={28} />
+              <div>
+                <div className="upload-label">{templateFile ? 'Template Loaded' : '1. Upload Template'}</div>
+                <div className="upload-subtext">{templateFile ? templateFile.name : 'PNG or JPG background'}</div>
               </div>
+            </label>
 
-              {config.photo_enabled && (
-                <div className="settings-panel" style={{ gridTemplateColumns: '1fr', marginTop: '1.5rem', background: 'rgba(0,0,0,0.1)', padding: '1rem', borderRadius: '12px' }}>
-                  <div className="settings-group">
-                    <label style={{ color: 'var(--accent-primary)', fontWeight: 'bold' }}>Match photos using this column:</label>
-                    <select
-                      style={{ padding: '0.5rem', borderRadius: '8px', background: '#111', color: 'white', border: '1px solid var(--glass-border)' }}
-                      value={config.photo_column}
-                      onChange={e => setConfig({ ...config, photo_column: e.target.value })}
-                    >
+            <label className={`upload-zone ${excelFile ? 'success' : ''}`}>
+              <input type="file" accept=".xlsx" className="hidden-input" onChange={handleExcelUpload} />
+              <FileSpreadsheet className="upload-icon" size={28} />
+              <div>
+                <div className="upload-label">{excelFile ? 'Data Loaded' : '2. Upload Data'}</div>
+                <div className="upload-subtext">{excelFile ? excelFile.name : '.xlsx spreadsheet'}</div>
+              </div>
+            </label>
+
+            <label className={`upload-zone ${photos ? 'success' : ''}`}>
+              <input type="file" accept="image/*" className="hidden-input" 
+                // @ts-ignore
+                webkitdirectory="true" directory="true" multiple onChange={handlePhotosUpload} 
+              />
+              <Folder className="upload-icon" size={28} />
+              <div>
+                <div className="upload-label">{photos ? `${photos.length} Photos Loaded` : '3. Photos Folder (Optional)'}</div>
+                <div className="upload-subtext">{photos ? 'Photo matching enabled' : 'Names must match ID column'}</div>
+              </div>
+            </label>
+
+            {headers.length > 0 && templateUrl && (
+              <div style={{ marginTop: '0.5rem' }}>
+                <h3 style={{ fontSize: '0.9rem', marginBottom: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Data Fields</h3>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  {headers.map(h => (
+                    <button key={h} className="add-element-btn" onClick={() => addTextElement(h)}>
+                      <Plus size={14} /> {h}
+                    </button>
+                  ))}
+                </div>
+
+                {config.photo_enabled && (
+                  <div className="settings-group" style={{ marginTop: '1.5rem' }}>
+                    <label style={{ color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                       Match photos to column:
+                    </label>
+                    <select value={config.photo_column} onChange={e => setConfig({ ...config, photo_column: e.target.value })}>
                       {headers.map(h => <option key={h} value={h}>{h}</option>)}
                     </select>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div style={{ marginTop: 'auto' }}>
-            <button className="btn-primary" disabled={!allReady || status === 'generating' || isUploading} onClick={startGeneration}>
-              {status === 'generating' || isUploading ? <div className="upload-icon spin" style={{ width: 24, height: 24, color: 'white' }}><Settings /></div> : <Play size={24} />}
-              {status === 'generating' ? 'Generating...' : (isUploading ? 'UPLOADING...' : 'START BATCH')}
-            </button>
+                )}
+              </div>
+            )}
           </div>
-        </div>
+        </aside>
 
-        <div className="glass-panel preview-workspace" style={{ padding: '0', display: 'flex', flexDirection: 'column' }}>
-          <div className="preview-header" style={{ padding: '1.5rem 2rem 1rem' }}>
-            <div className="preview-title">Interactive Canvas Designer</div>
-            <div style={{ color: 'var(--text-secondary)' }}>Add fields from the sidebar, then drag, resize, and style them here.</div>
-          </div>
-
-          <div className="canvas-container" ref={containerRef} style={{ flex: 1, position: 'relative', overflow: 'hidden', padding: 0 }} onClick={() => setActiveElement(null)}>
+        {/* Main Canvas Area */}
+        <main className="canvas-area">
+          <div className="canvas-container" ref={containerRef} onClick={() => setActiveElement(null)}>
             {!templateUrl ? (
               <div className="canvas-placeholder">
-                <ImageIcon size={64} style={{ opacity: 0.5 }} />
-                <p>Upload a template and excel file to begin designing</p>
+                <ImgIcon size={64} style={{ opacity: 0.3 }} />
+                <p>Upload a template and data file to start designing.</p>
               </div>
             ) : (
               <div
@@ -462,7 +416,8 @@ function App() {
                   left: '50%',
                   marginTop: -(bgSize.height * scale) / 2,
                   marginLeft: -(bgSize.width * scale) / 2,
-                  boxShadow: '0 0 50px rgba(0,0,0,0.5)'
+                  boxShadow: 'var(--shadow-lg)',
+                  backgroundColor: 'white'
                 }}
               >
                 <img src={templateUrl} style={{ display: 'none' }} onLoad={onImageLoad} alt="preload" />
@@ -473,9 +428,8 @@ function App() {
                     scale={scale}
                     style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      border: activeElement === 'PHOTO' ? '3px solid var(--accent-primary)' : '2px dashed rgba(255, 215, 0, 0.8)',
-                      background: 'rgba(0, 0, 0, 0.65)', cursor: 'move',
-                      boxShadow: '0 0 15px rgba(0,0,0,0.5) inset'
+                      border: activeElement === 'PHOTO' ? '3px solid var(--accent-primary)' : '2px dashed var(--accent-primary)',
+                      background: 'rgba(99, 102, 241, 0.1)', cursor: 'move',
                     }}
                     bounds="parent"
                     size={{ width: config.photo_w, height: config.photo_h }}
@@ -489,7 +443,7 @@ function App() {
                       updateConfigWithHistory(c => ({ ...c, photo_w: parseInt(ref.style.width), photo_h: parseInt(ref.style.height), ...pos }));
                     }}
                   >
-                    <span style={{ color: 'rgba(255,255,255,0.7)', fontWeight: 'bold', fontSize: '24px' }}>PHOTO AREA</span>
+                    <span style={{ color: 'var(--accent-primary)', fontWeight: 'bold', fontSize: '24px' }}>PHOTO</span>
                   </Rnd>
                 )}
 
@@ -502,8 +456,8 @@ function App() {
                       key={el.id}
                       style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        border: isActive ? '3px solid #ec4899' : '2px dashed rgba(236, 72, 153, 0.5)',
-                        background: isActive ? 'rgba(236, 72, 153, 0.15)' : 'transparent',
+                        border: isActive ? '2px solid var(--accent-primary)' : '2px dashed rgba(99, 102, 241, 0.4)',
+                        background: isActive ? 'rgba(99, 102, 241, 0.05)' : 'transparent',
                         cursor: 'move'
                       }}
                       bounds="parent"
@@ -520,7 +474,7 @@ function App() {
                       }}
                     >
                       {isActive && (
-                        <div onClick={(e) => removeTextElement(el.id, e)} style={{ position: 'absolute', top: -30, right: 0, background: 'var(--error)', color: 'white', borderRadius: '50%', padding: '4px', cursor: 'pointer' }}>
+                        <div onClick={(e) => removeTextElement(el.id, e)} style={{ position: 'absolute', top: -30, right: 0, background: 'var(--error)', color: 'white', borderRadius: '50%', padding: '4px', cursor: 'pointer', zIndex: 10 }}>
                           <X size={16} />
                         </div>
                       )}
@@ -534,11 +488,11 @@ function App() {
                         ...getCssForFont(el.font_family)
                       }}>
                         {el.extract_numbers
-                          ? (previewData[el.column] ? String(previewData[el.column]).replace(/\D/g, '') : `<${el.column}>`)
-                          : (previewData[el.column] || `<${el.column}>`)}
+                          ? (currentPreviewData[el.column] ? String(currentPreviewData[el.column]).replace(/\D/g, '') : `<${el.column}>`)
+                          : (currentPreviewData[el.column] || `<${el.column}>`)}
                       </div>
 
-                      {/* Element Settings Context Menu (only shows when active) */}
+                      {/* Element Settings Context Menu */}
                       {isActive && (
                         <div onClick={e => e.stopPropagation()}
                           onPointerDown={e => e.stopPropagation()}
@@ -548,103 +502,102 @@ function App() {
                             position: 'absolute', bottom: '100%', left: '50%',
                             transform: `translate(-50%, -10px) scale(${1 / scale})`,
                             transformOrigin: 'bottom center',
-                            background: '#1e293b', border: '1px solid var(--glass-border)', borderRadius: '12px',
+                            background: 'white', border: '1px solid var(--border-light)', borderRadius: '8px',
                             padding: '0.75rem 1rem', display: 'flex', gap: '1rem', zIndex: 1000,
-                            boxShadow: '0 10px 30px rgba(0,0,0,0.5)', width: 'max-content',
-                            alignItems: 'center'
+                            boxShadow: 'var(--shadow-lg)', width: 'max-content', alignItems: 'center'
                           }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                            <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Font Style</label>
-                            <select
-                              value={el.font_family} onChange={e => updateTextElement(el.id, { font_family: e.target.value })}
-                              style={{ padding: '0.4rem', background: '#0f172a', color: 'white', border: '1px solid var(--glass-border)', borderRadius: '6px', fontSize: '0.85rem' }}
-                            >
+                          <div className="settings-group" style={{ minWidth: '120px' }}>
+                            <label>Font Style</label>
+                            <select value={el.font_family} onChange={e => updateTextElement(el.id, { font_family: e.target.value })}>
                               {FONTS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                             </select>
                           </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', width: '130px' }}>
-                            <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Size ({el.font_size}px)</label>
-                            <input type="range" min="10" max="250" value={el.font_size} onChange={e => updateTextElement(el.id, { font_size: +e.target.value })} style={{ width: '100%', accentColor: 'var(--accent-primary)' }} />
+                          
+                          <div className="settings-group" style={{ width: '130px' }}>
+                            <label>Size ({el.font_size}px)</label>
+                            <input type="range" min="10" max="250" value={el.font_size} onChange={e => updateTextElement(el.id, { font_size: +e.target.value })} style={{ accentColor: 'var(--accent-primary)' }} />
                           </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', justifyContent: 'center' }}>
-                            <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
-                              <input type="checkbox" checked={el.extract_numbers || false} onChange={e => updateTextElement(el.id, { extract_numbers: e.target.checked })} style={{ accentColor: 'var(--accent-primary)', width: '14px', height: '14px' }} />
+
+                          <div className="settings-group" style={{ justifyContent: 'center' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer', marginTop: '1rem' }}>
+                              <input type="checkbox" checked={el.extract_numbers || false} onChange={e => updateTextElement(el.id, { extract_numbers: e.target.checked })} style={{ accentColor: 'var(--accent-primary)' }} />
                               Numbers Only
                             </label>
                           </div>
-
-                          <div style={{ height: '30px', width: '1px', background: 'var(--glass-border)', margin: '0 0.5rem' }}></div>
-
-                          <button
-                            onClick={(e) => removeTextElement(el.id, e)}
-                            style={{
-                              background: 'transparent', border: 'none', color: 'var(--error)',
-                              cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', padding: '0.2rem'
-                            }}
-                            title="Delete Element"
-                          >
-                            <Trash2 size={18} />
-                            <span style={{ fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Delete</span>
-                          </button>
                         </div>
                       )}
                     </Rnd>
                   );
                 })}
-
               </div>
             )}
           </div>
 
-          {(status === 'generating' || status === 'completed') && (
-            <div className="glass-panel status-section" style={{ position: 'absolute', bottom: '2rem', left: '2rem', right: '2rem', background: 'rgba(15, 23, 42, 0.95)', zIndex: 100 }}>
-              {status === 'generating' && (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                    <span style={{ fontWeight: 600 }}>Generating Certificates...</span>
-                    <span className="text-gradient">{progress.current} / {progress.total}</span>
-                  </div>
-                  <div className="progress-bar-container">
-                    <div className="progress-bar-fill" style={{ width: `${progress.total ? (progress.current / progress.total) * 100 : 0}%` }}></div>
-                  </div>
-                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                    Successfully generated... Skipped: {progress.skipped} (Files missing properties)
-                  </div>
-                </>
-              )}
-              {status === 'completed' && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', color: 'var(--success)' }}>
-                    <CheckCircle2 size={32} />
-                    <div style={{ textAlign: 'left' }}>
-                      <div style={{ fontWeight: 600, fontSize: '1.2rem', color: 'white' }}>Batch Complete!</div>
-                      <div style={{ color: 'var(--text-secondary)' }}>Generated: {progress.current} | Skipped: {progress.skipped}</div>
-                    </div>
-                  </div>
-                  <button className="btn-primary" style={{ width: 'auto', padding: '1rem 2rem' }} onClick={handleDownload}>
-                    <Download size={20} /> Download ZIP
-                  </button>
-                </div>
-              )}
+          {/* Bottom Pagination / Live Preview Bar */}
+          {allRows.length > 0 && templateUrl && status !== 'generating' && status !== 'completed' && (
+            <div className="live-preview-bar">
+              <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Live Preview</span>
+              <div className="pagination-controls">
+                <button className="btn btn-icon-only" onClick={() => setPreviewIndex(Math.max(0, previewIndex - 1))} disabled={previewIndex === 0}>
+                  <ChevronLeft size={20} />
+                </button>
+                <span>Record {previewIndex + 1} of {allRows.length}</span>
+                <button className="btn btn-icon-only" onClick={() => setPreviewIndex(Math.min(allRows.length - 1, previewIndex + 1))} disabled={previewIndex === allRows.length - 1}>
+                  <ChevronRight size={20} />
+                </button>
+              </div>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Use arrow keys to align perfectly</span>
             </div>
           )}
-
-          {status === 'error' && (
-            <div className="glass-panel status-section" style={{ position: 'absolute', bottom: '2rem', left: '2rem', right: '2rem', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid var(--error)', zIndex: 100 }}>
-              <AlertCircle size={32} color="var(--error)" style={{ margin: '0 auto 1rem' }} />
-              <h3 style={{ color: 'var(--error)', marginBottom: '0.5rem' }}>Generation Failed</h3>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>{progress.error_msg}</p>
-              <button
-                className="btn-primary"
-                style={{ width: 'auto', padding: '0.5rem 2rem', background: 'var(--error)' }}
-                onClick={() => window.location.reload()}
-              >
-                Start Over
-              </button>
-            </div>
-          )}
-        </div>
+        </main>
       </div>
+
+      {/* Overlays for generating / completed */}
+      {(status === 'generating' || status === 'completed') && (
+        <div className="status-overlay">
+          <div style={{ background: 'white', padding: '3rem', borderRadius: '16px', boxShadow: 'var(--shadow-lg)', maxWidth: '600px', width: '90%', textAlign: 'center' }}>
+            {status === 'generating' ? (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontWeight: 600 }}>
+                  <span>Generating Certificates...</span>
+                  <span style={{ color: 'var(--accent-primary)' }}>{progress.current} / {progress.total}</span>
+                </div>
+                <div className="progress-bar-container">
+                  <div className="progress-bar-fill" style={{ width: `${progress.total ? (progress.current / progress.total) * 100 : 0}%` }}></div>
+                </div>
+                {progress.skipped > 0 && (
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                    Skipped: {progress.skipped} (Files missing properties)
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <CheckCircle2 size={64} style={{ color: 'var(--success)', margin: '0 auto 1.5rem' }} />
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.5rem' }}>Batch Complete!</h2>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>Successfully generated {progress.current} certificates.</p>
+                <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+                  <button className="btn btn-secondary" onClick={() => setStatus('idle')}>Back to Editor</button>
+                  <button className="btn btn-primary" onClick={handleDownload}><Download size={18} /> Download ZIP</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {status === 'error' && (
+        <div className="status-overlay">
+          <div style={{ background: 'white', padding: '3rem', borderRadius: '16px', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--error)', maxWidth: '400px', textAlign: 'center' }}>
+            <AlertCircle size={48} color="var(--error)" style={{ margin: '0 auto 1rem' }} />
+            <h3 style={{ color: 'var(--error)', marginBottom: '0.5rem', fontSize: '1.25rem' }}>Generation Failed</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>{progress.error_msg}</p>
+            <button className="btn btn-primary" style={{ backgroundColor: 'var(--error)' }} onClick={() => setStatus('idle')}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

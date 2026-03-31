@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
+import imageCompression from 'browser-image-compression';
 
 export interface TextElement {
   id: string;
@@ -87,8 +88,11 @@ export const generateCertificates = async (
     let currentCount = 0;
     let skippedCount = 0;
 
-    // 2. Load Template Image
-    const templateDataUrl = await fileToBase64(templateFile);
+    // 2. Compress & Load Template Image
+    const options = { maxSizeMB: 1, maxWidthOrHeight: 2500, useWebWorker: true };
+    const optimizedTemplate = await imageCompression(templateFile, options);
+    
+    const templateDataUrl = await fileToBase64(optimizedTemplate);
     const { width: bgWidth, height: bgHeight } = await getImageDimensions(templateDataUrl);
 
     // 3. Map Photos for fast lookup
