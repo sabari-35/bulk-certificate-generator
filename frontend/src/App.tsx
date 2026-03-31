@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, SyntheticEvent } from 'react';
+import React, { useState, useRef, useEffect, useMemo, SyntheticEvent } from 'react';
 import { 
   FileSpreadsheet, Image as ImageIcon, Folder, Settings, 
   Download, Play, CheckCircle2, AlertCircle, Plus, X, Trash2,
@@ -119,6 +119,68 @@ function App() {
       setCurrentPhotoUrl(null);
     }
   }, [config.photo_enabled, config.photo_column, photos, allRows, previewIndex]);
+
+  const validationIssues = useMemo(() => {
+    if (allRows.length === 0) return [];
+    
+    const issues: React.ReactNode[] = [];
+    const missingTextRows: any[] = [];
+    const missingPhotoRows: any[] = [];
+
+    const availablePhotos = new Set<string>();
+    if (config.photo_enabled && photos) {
+      for (let i = 0; i < photos.length; i++) {
+         const file = photos[i];
+         const nameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.')).toUpperCase().trim() || file.name.toUpperCase().trim();
+         availablePhotos.add(nameWithoutExt);
+      }
+    }
+
+    allRows.forEach(row => {
+      let isMissingText = false;
+      if (config.text_elements.length > 0) {
+        isMissingText = config.text_elements.some(el => {
+           const val = String(row[el.column] || '');
+           return !val || val === 'undefined';
+        });
+        if (isMissingText) missingTextRows.push(row);
+      }
+
+      if (config.photo_enabled && config.photo_column && !isMissingText) {
+         const id = String(row[config.photo_column] || '').toUpperCase().trim();
+         if (id && !availablePhotos.has(id)) {
+             missingPhotoRows.push(row);
+         }
+      }
+    });
+
+    const getRowIdentifier = (row: any) => {
+        const idCol = config.photo_column || (config.text_elements[0]?.column) || '';
+        let idVal = idCol ? String(row[idCol] || '') : '';
+        let nameVal = '';
+        const possibleNameCols = Object.keys(row).filter(k => k.toUpperCase().includes('NAME'));
+        if (possibleNameCols.length > 0) {
+            nameVal = String(row[possibleNameCols[0]] || '');
+        }
+        if (nameVal && idVal && nameVal !== idVal) {
+            return `${nameVal} [${idVal}]`;
+        }
+        return nameVal || idVal || 'Unknown';
+    };
+
+    if (missingTextRows.length > 0) {
+      const examples = missingTextRows.slice(0, 5).map(getRowIdentifier).join(', ');
+      const extra = missingTextRows.length > 5 ? ` and ${missingTextRows.length - 5} more` : '';
+      issues.push(<span key="text">⚠️ <strong>{missingTextRows.length} record(s) missing text fields</strong>: {examples}{extra}</span>);
+    }
+    if (config.photo_enabled && missingPhotoRows.length > 0) {
+      const examples = missingPhotoRows.slice(0, 5).map(getRowIdentifier).join(', ');
+      const extra = missingPhotoRows.length > 5 ? ` and ${missingPhotoRows.length - 5} more` : '';
+      issues.push(<span key="photo">⚠️ <strong>{missingPhotoRows.length} record(s) missing matching photos</strong>: {examples}{extra}</span>);
+    }
+
+    return issues;
+  }, [config, allRows, photos]);
 
   // History State
   const [past, setPast] = useState<Config[]>([]);
@@ -432,7 +494,12 @@ function App() {
         </aside>
 
         {/* Main Canvas Area */}
-        <main className="canvas-area">
+        <main className="canvas-area" style={{ display: 'flex', flexDirection: 'column' }}>
+          {validationIssues.length > 0 && allReady && (
+             <div style={{ background: '#fef2f2', color: '#ef4444', padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem', borderBottom: '1px solid #fca5a5' }}>
+               {validationIssues.map((msg, i) => <div key={i} style={{ fontSize: '0.9rem', fontWeight: 500 }}>{msg}</div>)}
+             </div>
+          )}
           <div className="canvas-container" ref={containerRef} onClick={() => setActiveElement(null)}>
             {!templateUrl ? (
               <div className="canvas-placeholder">
