@@ -91,6 +91,35 @@ function App() {
   const [progress, setProgress] = useState({ total: 0, current: 0, skipped: 0, error_msg: '' });
   const [isUploading, setIsUploading] = useState(false);
 
+  const [currentPhotoUrl, setCurrentPhotoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (config.photo_enabled && config.photo_column && photos && allRows.length > 0) {
+      const currentRow = allRows[previewIndex] || {};
+      const identifierForPhoto = String(currentRow[config.photo_column] || '').toUpperCase().trim();
+      
+      let matchedFile: File | undefined;
+      for (let i = 0; i < photos.length; i++) {
+        const file = photos[i];
+        const nameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.')).toUpperCase().trim() || file.name.toUpperCase().trim();
+        if (nameWithoutExt === identifierForPhoto) {
+          matchedFile = file;
+          break;
+        }
+      }
+
+      if (matchedFile) {
+        const url = URL.createObjectURL(matchedFile);
+        setCurrentPhotoUrl(url);
+        return () => URL.revokeObjectURL(url);
+      } else {
+        setCurrentPhotoUrl(null);
+      }
+    } else {
+      setCurrentPhotoUrl(null);
+    }
+  }, [config.photo_enabled, config.photo_column, photos, allRows, previewIndex]);
+
   // History State
   const [past, setPast] = useState<Config[]>([]);
   const [future, setFuture] = useState<Config[]>([]);
@@ -437,6 +466,7 @@ function App() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       border: activeElement === 'PHOTO' ? '3px solid var(--accent-primary)' : '2px dashed var(--accent-primary)',
                       background: 'rgba(99, 102, 241, 0.1)', cursor: 'move',
+                      overflow: 'hidden'
                     }}
                     bounds="parent"
                     size={{ width: config.photo_w, height: config.photo_h }}
@@ -450,7 +480,11 @@ function App() {
                       updateConfigWithHistory(c => ({ ...c, photo_w: parseInt(ref.style.width), photo_h: parseInt(ref.style.height), ...pos }));
                     }}
                   >
-                    <span style={{ color: 'var(--accent-primary)', fontWeight: 'bold', fontSize: '24px' }}>PHOTO</span>
+                    {currentPhotoUrl ? (
+                      <img src={currentPhotoUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="Student Preview" draggable="false" />
+                    ) : (
+                      <span style={{ color: 'var(--accent-primary)', fontWeight: 'bold', fontSize: '24px' }}>PHOTO</span>
+                    )}
                   </Rnd>
                 )}
 
