@@ -2,21 +2,22 @@
 
 :root {
   --bg-app: #f3f4f6;
-  --bg-sidebar: #ffffff;
-  --bg-topbar: #ffffff;
-  --bg-panel: #ffffff;
+  --bg-sidebar: #f3f4f6;
+  --bg-topbar: #f3f4f6;
+  --bg-panel: #f3f4f6;
   --text-primary: #111827;
   --text-secondary: #4b5563;
   --text-muted: #9ca3af;
   --accent-primary: #6366f1; /* Indigo canvas feels */
   --accent-hover: #4f46e5;
-  --border-light: #e5e7eb;
+  --border-light: transparent;
   --canvas-bg: #ececf1;
   --success: #10b981;
   --error: #ef4444;
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 4px 4px 8px #d1d5db, -4px -4px 8px #ffffff;
+  --shadow-md: 6px 6px 12px #d1d5db, -6px -6px 12px #ffffff;
+  --shadow-lg: 10px 10px 20px #d1d5db, -10px -10px 20px #ffffff;
+  --shadow-inset: inset 4px 4px 8px #d1d5db, inset -4px -4px 8px #ffffff;
 }
 
 * {
@@ -48,23 +49,27 @@ body {
 .topbar {
   height: 60px;
   background-color: var(--bg-topbar);
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 1.5rem;
   z-index: 10;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 4px 6px -2px rgba(0,0,0,0.05);
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  font-weight: 700;
-  font-size: 1.25rem;
+  font-weight: 800;
+  font-size: 1.85rem;
   color: var(--accent-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
+  text-shadow: 
+    2px 2px 5px rgba(163, 177, 198, 0.7), 
+    -2px -2px 5px rgba(255, 255, 255, 1),
+    1px 1px 0px rgba(79, 70, 229, 0.1);
 }
 
 .topbar-actions {
@@ -84,18 +89,19 @@ body {
 .sidebar {
   width: 340px;
   background-color: var(--bg-sidebar);
-  border-right: 1px solid var(--border-light);
+  border-right: none;
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow-y: auto;
   z-index: 5;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 4px 0 10px -2px rgba(0,0,0,0.05);
 }
 
 .sidebar-header {
   padding: 1.25rem;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: none;
+  box-shadow: 0 4px 6px -4px rgba(0,0,0,0.05);
 }
 
 .sidebar-header h2 {
@@ -116,7 +122,7 @@ body {
 
 /* Upload Zones */
 .upload-zone {
-  border: 2px dashed var(--border-light);
+  border: none;
   border-radius: 12px;
   padding: 1.5rem 1rem;
   display: flex;
@@ -125,18 +131,18 @@ body {
   justify-content: center;
   gap: 0.75rem;
   cursor: pointer;
-  transition: all 0.2s ease;
-  background-color: #f9fafb;
+  transition: all 0.3s ease;
+  background-color: var(--bg-app);
+  box-shadow: var(--shadow-sm);
 }
 
 .upload-zone:hover {
-  border-color: var(--accent-primary);
-  background-color: #f3f4f6;
+  box-shadow: var(--shadow-inset);
 }
 
 .upload-zone.success {
-  border-color: var(--success);
-  background-color: #ecfdf5;
+  background-color: var(--bg-app);
+  box-shadow: inset 4px 4px 8px #bbf7d0, inset -4px -4px 8px #ffffff;
 }
 
 .upload-icon {
@@ -199,7 +205,7 @@ body {
 /* Element Adding Buttons */
 .add-element-btn {
   background-color: var(--bg-app);
-  border: 1px solid var(--border-light);
+  border: none;
   color: var(--text-primary);
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
@@ -209,12 +215,12 @@ body {
   align-items: center;
   gap: 0.4rem;
   font-weight: 500;
-  transition: all 0.2s;
+  transition: all 0.3s ease;
+  box-shadow: var(--shadow-sm);
 }
 
 .add-element-btn:hover {
-  background-color: #e5e7eb;
-  border-color: #d1d5db;
+  box-shadow: var(--shadow-inset);
 }
 
 /* Form Settings */
@@ -234,11 +240,19 @@ body {
 .settings-group input {
   padding: 0.5rem;
   border-radius: 6px;
-  border: 1px solid var(--border-light);
-  background: white;
+  border: none;
+  background: var(--bg-app);
+  box-shadow: var(--shadow-inset);
   font-size: 0.9rem;
   color: var(--text-primary);
   font-family: inherit;
+  outline: none;
+  transition: all 0.3s ease;
+}
+
+.settings-group select:focus,
+.settings-group input:focus {
+  box-shadow: inset 5px 5px 10px #d1d5db, inset -5px -5px 10px #ffffff;
 }
 
 /* Buttons */
@@ -252,45 +266,53 @@ body {
   font-weight: 600;
   font-size: 0.95rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s ease;
   border: none;
   font-family: 'Inter', sans-serif;
+  box-shadow: var(--shadow-md);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
 }
 
 .btn-primary {
   background-color: var(--accent-primary);
   color: white;
+  box-shadow: 4px 4px 10px rgba(99, 102, 241, 0.4), -4px -4px 10px rgba(255, 255, 255, 0.8);
 }
 
 .btn-primary:hover:not(:disabled) {
   background-color: var(--accent-hover);
-  box-shadow: var(--shadow-md);
+  box-shadow: inset 4px 4px 8px rgba(0,0,0,0.1), inset -4px -4px 8px rgba(255,255,255,0.2);
 }
 
 .btn-primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .btn-icon-only {
   padding: 0.5rem;
-  background: transparent;
+  background: var(--bg-app);
   color: var(--text-secondary);
+  box-shadow: var(--shadow-sm);
+  border-radius: 50%;
 }
 
 .btn-icon-only:hover {
-  background: var(--border-light);
+  box-shadow: var(--shadow-inset);
   color: var(--text-primary);
 }
 
 .btn-secondary {
-  background-color: white;
-  border: 1px solid var(--border-light);
+  background-color: var(--bg-app);
+  border: none;
   color: var(--text-primary);
+  box-shadow: var(--shadow-md);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background-color: #f9fafb;
+  box-shadow: var(--shadow-inset);
 }
 
 /* Bottom Pagination / Live Preview */

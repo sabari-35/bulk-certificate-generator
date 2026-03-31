@@ -418,9 +418,22 @@ function App() {
         </div>
         <div className="topbar-actions">
           {isUploading && <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Processing files...</span>}
-          <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg-secondary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
-            <button className={`btn btn-sm ${downloadMode === 'zip' ? 'btn-primary' : ''}`} onClick={() => setDownloadMode('zip')} style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem', background: downloadMode === 'zip' ? 'var(--accent-primary)' : 'transparent', color: downloadMode === 'zip' ? 'white' : 'var(--text-primary)', border: 'none', cursor: 'pointer', borderRadius: '4px' }}>ZIP (Individual)</button>
-            <button className={`btn btn-sm ${downloadMode === 'merged' ? 'btn-primary' : ''}`} onClick={() => setDownloadMode('merged')} style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem', background: downloadMode === 'merged' ? 'var(--accent-primary)' : 'transparent', color: downloadMode === 'merged' ? 'white' : 'var(--text-primary)', border: 'none', cursor: 'pointer', borderRadius: '4px' }}>Merged PDF</button>
+          <div style={{ position: 'relative', display: 'flex', width: '280px', background: 'var(--bg-app)', padding: '0.35rem', borderRadius: '10px', boxShadow: 'var(--shadow-inset)' }}>
+            <div style={{
+              position: 'absolute',
+              top: '0.35rem',
+              bottom: '0.35rem',
+              left: downloadMode === 'zip' ? '0.35rem' : '50%',
+              right: downloadMode === 'zip' ? '50%' : '0.35rem',
+              background: 'var(--accent-primary)',
+              borderRadius: '6px',
+              boxShadow: 'var(--shadow-md)',
+              transition: downloadMode === 'merged' 
+                ? 'left 0.5s cubic-bezier(0.4, 0, 0.2, 1), right 0.3s cubic-bezier(0.4, 0, 0.2, 1)' 
+                : 'left 0.3s cubic-bezier(0.4, 0, 0.2, 1), right 0.5s cubic-bezier(0.4, 0, 0.2, 1)'
+            }}></div>
+            <button onClick={() => setDownloadMode('zip')} style={{ flex: 1, position: 'relative', background: 'transparent', color: downloadMode === 'zip' ? 'white' : 'var(--text-primary)', border: 'none', cursor: 'pointer', padding: '0.4rem 0.5rem', fontSize: '0.85rem', fontWeight: 600, zIndex: 1, transition: 'color 0.4s ease' }}>ZIP (Individual)</button>
+            <button onClick={() => setDownloadMode('merged')} style={{ flex: 1, position: 'relative', background: 'transparent', color: downloadMode === 'merged' ? 'white' : 'var(--text-primary)', border: 'none', cursor: 'pointer', padding: '0.4rem 0.5rem', fontSize: '0.85rem', fontWeight: 600, zIndex: 1, transition: 'color 0.4s ease' }}>Merged PDF</button>
           </div>
           <button className="btn btn-secondary" disabled={!allReady || status === 'generating' || isUploading} onClick={startGeneration}>
             {status === 'generating' || isUploading ? <div className="spin"><Settings size={18} /></div> : <Play size={18} />} 
