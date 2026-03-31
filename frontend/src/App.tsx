@@ -61,6 +61,7 @@ const getCssForFont = (fontFile: string): React.CSSProperties => {
 };
 
 function App() {
+  const [downloadMode, setDownloadMode] = useState<'zip' | 'merged'>('zip');
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   const [allRows, setAllRows] = useState<Record<string, string>[]>([]);
@@ -301,14 +302,16 @@ function App() {
     if (!excelFile || !templateFile) return;
     setStatus('generating');
     
-    await generateCertificates(excelFile, templateFile, photos, config, (prog: ProgressState) => {
+    await generateCertificates(excelFile, templateFile, photos, config, downloadMode, (prog: ProgressState) => {
         setProgress(prog);
         setStatus(prog.status);
     });
   };
 
   const handleDownload = () => {
-    alert("ZIP file was already downloaded to your computer automatically!");
+    alert(downloadMode === 'zip' 
+      ? "ZIP file was already downloaded to your computer automatically!" 
+      : "Merged PDF was already downloaded to your computer automatically!");
   };
 
   const allReady = excelFile && templateFile;
@@ -324,6 +327,10 @@ function App() {
         </div>
         <div className="topbar-actions">
           {isUploading && <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Processing files...</span>}
+          <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg-secondary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+            <button className={`btn btn-sm ${downloadMode === 'zip' ? 'btn-primary' : ''}`} onClick={() => setDownloadMode('zip')} style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem', background: downloadMode === 'zip' ? 'var(--accent-primary)' : 'transparent', color: downloadMode === 'zip' ? 'white' : 'var(--text-primary)', border: 'none', cursor: 'pointer', borderRadius: '4px' }}>ZIP (Individual)</button>
+            <button className={`btn btn-sm ${downloadMode === 'merged' ? 'btn-primary' : ''}`} onClick={() => setDownloadMode('merged')} style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem', background: downloadMode === 'merged' ? 'var(--accent-primary)' : 'transparent', color: downloadMode === 'merged' ? 'white' : 'var(--text-primary)', border: 'none', cursor: 'pointer', borderRadius: '4px' }}>Merged PDF</button>
+          </div>
           <button className="btn btn-secondary" disabled={!allReady || status === 'generating' || isUploading} onClick={startGeneration}>
             {status === 'generating' || isUploading ? <div className="spin"><Settings size={18} /></div> : <Play size={18} />} 
             {status === 'generating' ? 'Generating...' : 'Batch Generate'}
@@ -578,7 +585,7 @@ function App() {
                 <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>Successfully generated {progress.current} certificates.</p>
                 <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
                   <button className="btn btn-secondary" onClick={() => setStatus('idle')}>Back to Editor</button>
-                  <button className="btn btn-primary" onClick={handleDownload}><Download size={18} /> Download ZIP</button>
+                  <button className="btn btn-primary" onClick={handleDownload}><Download size={18} /> {downloadMode === 'zip' ? 'Download ZIP' : 'Download Merged PDF'}</button>
                 </div>
               </>
             )}

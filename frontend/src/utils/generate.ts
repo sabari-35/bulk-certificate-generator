@@ -69,6 +69,7 @@ export const generateCertificates = async (
   templateFile: File,
   photosList: FileList | null,
   config: GenerationConfig,
+  downloadMode: 'zip' | 'merged',
   onProgress: (progress: ProgressState) => void
 ) => {
   try {
@@ -109,8 +110,17 @@ export const generateCertificates = async (
     // Pre-process photos into base64 to avoid doing it repeatedly if they repeat
     const processedPhotos = new Map<string, string>();
 
-    // 4. Setup JSZip
+    // 4. Setup JSZip and PDF
     const zip = new JSZip();
+    let mergedPdfDoc: jsPDF | null = null;
+    if (downloadMode === 'merged') {
+       mergedPdfDoc = new jsPDF({
+         orientation: bgWidth > bgHeight ? 'landscape' : 'portrait',
+         unit: 'px',
+         format: [bgWidth, bgHeight],
+         compress: true
+       });
+    }
 
     // 5. Generate process
     // We yield back to main thread periodically so UI doesn't freeze
@@ -134,12 +144,20 @@ export const generateCertificates = async (
       }
 
       // Create PDF
-      const doc = new jsPDF({
-        orientation: bgWidth > bgHeight ? 'landscape' : 'portrait',
-        unit: 'px',
-        format: [bgWidth, bgHeight],
-        compress: true // Compress PDF to keep zip small
-      });
+      let doc: jsPDF;
+      if (downloadMode === 'merged') {
+        doc = mergedPdfDoc!;
+        if (currentCount > 0) {
+          doc.addPage([bgWidth, bgHeight], bgWidth > bgHeight ? 'landscape' : 'portrait');
+        }
+      } else {
+        doc = new jsPDF({
+          orientation: bgWidth > bgHeight ? 'landscape' : 'portrait',
+          unit: 'px',
+          format: [bgWidth, bgHeight],
+          compress: true
+        });
+      }
 
       // Draw Template
       doc.addImage(templateDataUrl, 'JPEG', 0, 0, bgWidth, bgHeight);
@@ -190,22 +208,24 @@ export const generateCertificates = async (
         doc.text(val, centeredX, centeredY);
       }
 
-      // Save PDF to Zip
-      const pdfBlob = doc.output('blob');
-      
-      // Determine file name
-      // Use photo identifier or first text column as document name
-      let docName = `Certificate_${i + 1}`;
-      if (identifierForPhoto) {
-        docName = identifierForPhoto;
-      } else if (config.text_elements.length > 0) {
-        // Fallback to the first text element's value (e.g., student name or ID)
-        const colName = config.text_elements[0].column;
-        const val = String(row[colName] || '').replace(/[^a-z0-9_-]/gi, '_');
-        if (val) docName = val;
+      // Save PDF to Zip if mode is zip
+      if (downloadMode === 'zip') {
+        const pdfBlob = doc.output('blob');
+        
+        // Determine file name
+        // Use photo identifier or first text column as document name
+        let docName = `Certificate_${i + 1}`;
+        if (identifierForPhoto) {
+          docName = identifierForPhoto;
+        } else if (config.text_elements.length > 0) {
+          // Fallback to the first text element's value (e.g., student name or ID)
+          const colName = config.text_elements[0].column;
+          const val = String(row[colName] || '').replace(/[^a-z0-9_-]/gi, '_');
+          if (val) docName = val;
+        }
+        
+        zip.file(`${docName}.pdf`, pdfBlob);
       }
-      
-      zip.file(`${docName}.pdf`, pdfBlob);
       
       currentCount++;
 
@@ -221,12 +241,16 @@ export const generateCertificates = async (
       throw new Error("No certificates were generated. Check your data and element bindings.");
     }
 
-    // Generate ZIP
-    const zipContent = await zip.generateAsync({ type: 'blob' }, (metadata) => {
-        // optionally update progress here for zipping phase
-    });
-
-    saveAs(zipContent, 'certificates.zip');
+    // Generate ZIP or download merged PDF
+    if (downloadMode === 'zip') {
+      const zipContent = await zip.generateAsync({ type: 'blob' }, (metadata) => {
+          // optionally update progress here for zipping phase
+      });
+      saveAs(zipContent, 'certificates.zip');
+    } else if (downloadMode === 'merged' && mergedPdfDoc) {
+      const mergedBlob = mergedPdfDoc.output('blob');
+      saveAs(mergedBlob, 'merged_certificates.pdf');
+    }
 
     onProgress({ total: totalRecords, current: currentCount, skipped: skippedCount, error_msg: '', status: 'completed' });
 
